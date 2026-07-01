@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "stockpush"
+version = "1.0.0"
+description = "F5.1 实时监控推送系统 - 股票信号监控与飞书推送"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "MyTT>=2.9.0",
+    "pyyaml>=6.0",
+    "requests>=2.31.0",
+    "apscheduler>=3.10.0",
+    "psycopg>=3.1.0",
+    "python-dotenv>=1.0.0",
+    "cryptography>=41.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["stockpush*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.key", "*.sql", "deploy/systemd/*"]

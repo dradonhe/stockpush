@@ -1,0 +1,30 @@
+custom_functions:
+  dir: /opt/stockpush/stockpush/userfunc
+  functions:
+  - desc: MF30多因子信号
+    dir: /opt/stockpush/stockpush/userfunc
+    file: MF30.py
+    func: MF30
+    name: MF30
+  - desc: 5分分钟预警
+    dir: /opt/stockpush/stockpush/userfunc
+    file: MF05.py
+    func: MF05
+    name: MF05
+datasources:
+  primary: xtick
+feishu:
+  enabled: true
+  sign_enabled: false
+  # 首次运行后会自动生成密钥文件 config/telegram_credentials.key
+  # 使用以下命令加密 webhook:
+  #   python -c "from stockpush.credential_store import encrypt_value; print(encrypt_value('https://open.feishu.cn/open-apis/bot/v2/hook/xxx'))"
+  # 然后将加密后的字符串填入 webhook 字段
+  sign_secret: ""
+  webhook: ""
+schedule:
+  afternoon_end: '15:05'
+  afternoon_start: '13:00:05'
+  interval_seconds: 60
+  morning_end: '11:35'
+  morning_start: 09:25

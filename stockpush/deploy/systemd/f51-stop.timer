@@ -1,0 +1,9 @@
+[Unit]
+Description=F5.1 Monitor Stop
+
+[Timer]
+OnCalendar=*-*-* 15:30:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

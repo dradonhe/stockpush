@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+config/telegram_credentials.key
+
+# Logs
+*.log
+log/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup
+*.bak
+*.bak.*

@@ -1,0 +1,11 @@
+[Unit]
+Description=F5.1 Realtime Monitor
+After=network.target
+
+[Service]
+Type=exec
+ExecStart=/opt/stockpush/.venv/bin/python3 -m stockpush.worker --headless
+WorkingDirectory=/opt/stockpush
+Restart=no
+KillSignal=SIGTERM
+TimeoutStopSec=30

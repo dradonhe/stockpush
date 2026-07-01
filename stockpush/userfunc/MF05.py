@@ -13,7 +13,7 @@ MF05V2 多因子三级买卖信号 + 第四类RSI买卖点
 """
 
 import sys
-sys.path.insert(0, r"/opt/webstock")
+sys.path.insert(0, r"/opt/stockpush")
 
 import numpy as np
 import pandas as pd

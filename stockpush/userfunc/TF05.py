@@ -19,7 +19,7 @@ TF05 v2 — 双均线 SID 状态字节买卖点系统
 """
 
 import sys
-sys.path.insert(0, r"/opt/webstock")
+sys.path.insert(0, r"/opt/stockpush")
 
 import numpy as np
 import pandas as pd

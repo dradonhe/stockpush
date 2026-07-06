@@ -284,12 +284,14 @@ class Console:
             print("  6.1 添加自选股")
             print("  6.2 删除自选股")
             print("  6.3 查看自选股列表")
+            print("  6.4 更新代码库")
             print("  0. 返回上级")
             with self._silent():
                 c = self._input("\n请输入选项: ")
             if c == "0": break
             {"6.1": self._pool_add, "6.2": self._pool_remove,
-             "6.3": self._pool_list}.get(c, lambda: None)()
+             "6.3": self._pool_list,
+             "6.4": self._pool_import_codes}.get(c, lambda: None)()
 
     def _pool_add(self):
         self._print_header("添加自选股")
@@ -368,6 +370,18 @@ class Console:
         for item in stocks:
             name = item.get('name', '') or ''
             print(f"  {item['symbol']:<10} | {name:<14} | {item.get('type',''):<8} | {item.get('group_name',''):<12}")
+        self._press_enter()
+
+    def _pool_import_codes(self):
+        self._print_header("更新代码库")
+        print("正在从数据源获取最新股票代码列表...")
+        result = self.api.pool_import_codes()
+        if result.get("success"):
+            d = result["data"]
+            print(f"\n✅ 导入完成: {d['count']} 条 (数据源: {d['provider']})")
+            self._log(f"更新代码库: 导入{d['count']}条 (来源: {d['provider']})")
+        else:
+            print(f"\n❌ {result.get('message', '导入失败')}")
         self._press_enter()
 
     # ===== helpers =====

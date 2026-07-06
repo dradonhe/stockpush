@@ -8,10 +8,10 @@ Signal Engine - 动态加载并执行自定义信号计算函数
 - 提取买卖信号
 
 Example:
-    from services.f51_realtime.signal_engine import init_signal_engine, get_signal_engine
+    from stockpush.services.signal_engine import init_signal_engine, get_signal_engine
 
     # 初始化信号引擎
-    init_signal_engine("services.tdx_to_talib.fma", "calculate", {"N1": 40, "M1": 27, "MP1": 3})
+    init_signal_engine("stockpush.userfunc.MF05", "mf05_from_df", {"N1": 40, "M1": 27, "MP1": 3})
 
     # 获取引擎实例
     engine = get_signal_engine()
@@ -60,7 +60,7 @@ class SignalEngine:
         """
         动态加载信号计算函数
         Args:
-            module_path: 模块路径，如 "services.tdx_to_talib.fma"
+            module_path: 模块路径，如 "stockpush.userfunc.MF05"
             func_name: 函数名，如 "calculate"
             params: 函数参数字典
         Returns:
@@ -223,7 +223,7 @@ def init_signal_engine(
     初始化全局信号引擎（单例模式）
 
     Args:
-        module_path: 模块路径，如 "services.tdx_to_talib.fma"
+            module_path: 模块路径，如 "stockpush.userfunc.MF05"
         func_name: 函数名，如 "calculate"
         params: 函数参数字典
 

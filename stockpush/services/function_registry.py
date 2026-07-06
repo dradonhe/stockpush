@@ -24,9 +24,10 @@ class FunctionInfo:
     period: str
     param_set_id: int
     enabled: bool
+    push_enabled: bool = True
 
 SELECT_COLUMNS = ("id, name, display_name, module_path, func_name, "
-                  "period, param_set_id, enabled")
+                  "period, param_set_id, enabled, push_enabled")
 
 
 class FunctionRegistry:
@@ -49,6 +50,7 @@ class FunctionRegistry:
             period=row['period'],
             param_set_id=row['param_set_id'],
             enabled=row['enabled'],
+            push_enabled=row.get('push_enabled', True),
         )
 
     # ── 查询 ──

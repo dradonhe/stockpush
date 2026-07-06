@@ -472,6 +472,104 @@ class PoolMgrService:
             self.logger.error(f"获取symbol信息失败: {e}", exc_info=True)
             raise
     
+    def import_stock_codes(self, df) -> int:
+        """
+        从 DataFrame 导入股票代码到 tb_stock_codes
+
+        Args:
+            df: 包含 code 列的 DataFrame（name / market 可选）
+
+        Returns:
+            int: 导入的记录数
+        """
+        if df is None or (hasattr(df, 'empty') and df.empty):
+            self.logger.warning("import_stock_codes: 数据为空，跳过")
+            return 0
+
+        has_name = 'name' in df.columns
+        has_market = 'market' in df.columns
+        count = 0
+        for _, row in df.iterrows():
+            code = str(row.get('code', '')).strip()
+            if not code:
+                continue
+            name = str(row.get('name', '')).strip() if has_name else ''
+            market = str(row.get('market', '')).strip() if has_market else ''
+            try:
+                if name:
+                    self.db_connector.execute_update(
+                        """INSERT INTO tb_stock_codes (symbol, name, market, updated_at)
+                           VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                           ON CONFLICT (symbol) DO UPDATE SET
+                               name = EXCLUDED.name,
+                               market = EXCLUDED.market,
+                               updated_at = CURRENT_TIMESTAMP""",
+                        (code, name, market))
+                else:
+                    # 无名称时不覆盖已有名称
+                    self.db_connector.execute_update(
+                        """INSERT INTO tb_stock_codes (symbol, name, market, updated_at)
+                           VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                           ON CONFLICT (symbol) DO UPDATE SET
+                               market = EXCLUDED.market,
+                               updated_at = CURRENT_TIMESTAMP""",
+                        (code, name, market))
+                count += 1
+            except Exception as e:
+                self.logger.warning(f"导入股票代码失败 {code}: {e}")
+
+        self.logger.info(f"股票代码导入完成: {count} 条")
+        return count
+
+    def import_fund_codes(self, df) -> int:
+        """
+        从 DataFrame 导入基金代码到 tb_fund_codes
+
+        Args:
+            df: 包含 code 列的 DataFrame（name / type 可选）
+
+        Returns:
+            int: 导入的记录数
+        """
+        if df is None or (hasattr(df, 'empty') and df.empty):
+            self.logger.warning("import_fund_codes: 数据为空，跳过")
+            return 0
+
+        has_name = 'name' in df.columns
+        has_type = 'type' in df.columns
+        count = 0
+        for _, row in df.iterrows():
+            code = str(row.get('code', '')).strip()
+            if not code:
+                continue
+            name = str(row.get('name', '')).strip() if has_name else ''
+            ftype = str(row.get('type', '')).strip() if has_type else ''
+            try:
+                if name:
+                    self.db_connector.execute_update(
+                        """INSERT INTO tb_fund_codes (symbol, name, type, updated_at)
+                           VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                           ON CONFLICT (symbol) DO UPDATE SET
+                               name = EXCLUDED.name,
+                               type = EXCLUDED.type,
+                               updated_at = CURRENT_TIMESTAMP""",
+                        (code, name, ftype))
+                else:
+                    # 无名称时不覆盖已有名称
+                    self.db_connector.execute_update(
+                        """INSERT INTO tb_fund_codes (symbol, name, type, updated_at)
+                           VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                           ON CONFLICT (symbol) DO UPDATE SET
+                               type = EXCLUDED.type,
+                               updated_at = CURRENT_TIMESTAMP""",
+                        (code, name, ftype))
+                count += 1
+            except Exception as e:
+                self.logger.warning(f"导入基金代码失败 {code}: {e}")
+
+        self.logger.info(f"基金代码导入完成: {count} 条")
+        return count
+
     def sync_from_codes(self, symbol: str = None) -> int:
         """
         从代码库同步标的基础信息(name/market)

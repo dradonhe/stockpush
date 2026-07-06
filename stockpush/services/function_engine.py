@@ -98,7 +98,9 @@ class FunctionEngine:
                     )
                     new_signals = []
 
-                # 推送 — 只推新写入的信号（已去重）
+                # 推送 — 只推新写入的信号（已去重）; push_enabled=False 时跳过
+                if not func_info.push_enabled:
+                    continue
                 for sig in new_signals:
                     try:
                         raw_time = sig.get("time")

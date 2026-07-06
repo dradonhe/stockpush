@@ -7,7 +7,7 @@ import threading
 
 # 假设这些模块已经存在，但在测试环境中可能需要 Mock
 try:
-    from stockpush.db_connector import DBConnector
+    from stockpush.pg_connector import PGConnector as DBConnector
     from stockpush.log_manager import LogManager
     from .full_download_meta import FullDownloadMeta, check_dividend_update_needed
     from stockpush.src_mgr.src_mgr import SrcMgrService
@@ -482,13 +482,7 @@ class DataDownService:
                     self._log_error(task_id, f"Fetch error for {chunk_str}: {e}")
                     continue
                 finally:
-                    # 释放 TdxOnline 连接
-                    try:
-                        if str(provider).lower() == 'tdxonline':
-                            if hasattr(provider_obj, 'release_connection'):
-                                provider_obj.release_connection()
-                    except Exception:
-                        pass
+                    pass
 
                 # 4. 熔断策略：无数据处理
                 if not data:
@@ -509,9 +503,6 @@ class DataDownService:
                     self._update_state(task_id, status='stopped')
                     return
 
-                if str(provider).lower() == 'tdxonline':
-                    unique_ts = len({row.get('ts') for row in data if row.get('ts') is not None})
-                    self._log_info(task_id, f"Chunk {chunk_str} normalized rows={len(data)}, unique_ts={unique_ts}")
 
                 # 5. 入库
                 if conflict_policy_cache == 'overwrite':
@@ -611,19 +602,7 @@ class DataDownService:
         return result
 
     def _normalize_fetch_code(self, provider: str, symbol: str, asset_type: str) -> str:
-        provider = str(provider).lower()
-        symbol = str(symbol).strip()
-
-        if '.' in symbol:
-            return symbol
-
-        if provider in ('tdxonline', 'tdxlocal') and asset_type == 'fund':
-            if symbol.startswith('5'):
-                return f"{symbol}.SH"
-            if symbol.startswith('1'):
-                return f"{symbol}.SZ"
-
-        return symbol
+        return symbol.strip()
 
     def _check_conflict(self, symbol: str, period: str, start: date, end: date) -> bool:
         """检查数据库中是否存在该时间段的数据"""

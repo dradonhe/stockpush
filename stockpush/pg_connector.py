@@ -2,7 +2,6 @@
 PostgreSQL 连接器（F5.1 + SysInit 专用）
 
 远端部署使用 psycopg 3 驱动连接 PostgreSQL。
-本地开发/测试模块请使用 src.db_connector.DBConnector（DuckDB）。
 """
 
 import os
@@ -55,7 +54,6 @@ class PGConnector:
     """PostgreSQL 数据库连接器（使用 psycopg 3）
 
     仅供 F5.1 (远端监控) 和 SysInit (系统初始化) 使用。
-    其他模块请使用 src.db_connector.DBConnector（DuckDB）。
     """
 
     _DEFAULT_CFG = {

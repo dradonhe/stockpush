@@ -314,6 +314,40 @@ class XTickProvider(BaseProvider, StandardAPIAdapter):
             self.logger.warning('XTick /doc/codes 调用失败')
             return pd.DataFrame()
 
+
+    def fetch_trade_calendar(self, start: str, end: str) -> pd.DataFrame:
+        """获取交易日历。
+
+        调用 XTick /doc/calendar 接口，返回指定日期范围内所有交易日。
+        code=all 时获取全市场统一日历（含节假日标记）。
+
+        Args:
+            start: 开始日期 YYYY-MM-DD
+            end: 结束日期 YYYY-MM-DD
+
+        Returns:
+            DataFrame，字段包含 [date, is_trading_day, ...]（取决于 API 返回）
+            失败返回空 DataFrame
+        """
+        try:
+            # 以沪深 A 股指数的交易日作为全市场日历
+            params = {
+                'type': 1,
+                'code': '000001',
+                'startDate': start,
+                'endDate': end,
+            }
+            data = self._request('/doc/calendar', params=params)
+            df = self._to_df(data)
+            if df.empty:
+                return df
+            # 确保 date 列存在
+            if 'date' not in df.columns:
+                return pd.DataFrame()
+            return df
+        except Exception as e:
+            self.logger.warning(f"XTick 交易日历获取失败: {e}")
+            return pd.DataFrame()
     # ========== 基金 K 线（ETF，type=20）==========
     def fetch_fund_daily(self, code: str, start_date: str, end_date: str, adjust: str = 'none') -> pd.DataFrame:
         params = {'type': 20, 'code': code, 'period': '1d', 'fq': self._map_adjust(adjust),

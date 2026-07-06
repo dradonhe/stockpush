@@ -77,7 +77,7 @@ class FeishuPusher:
 
     def push_signal(self, symbol: str, name: str, signal_type: str,
                     time_str: str, period: str, indicator: str,
-                    source: str = "tdxonline",
+                    source: str = "xtick",
                     buy_status: str = "", sell_status: str = "",
                     open_price: float = 0.0) -> Dict[str, Any]:
         open_line = f"开盘价: {open_price:.3f}\n" if open_price else ""

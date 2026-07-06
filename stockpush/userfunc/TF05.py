@@ -87,7 +87,7 @@ def _P(df):
 
 
 def _realign(s, target_index):
-    """将跨周期 Series 向前填充到主力周期索引 (通达信 #period 语义)"""
+    """将跨周期 Series 向前填充到主力周期索引 (#period 语义)"""
     df_tmp = pd.DataFrame({'val': s})
     df_tmp['idx'] = s.index
     df_target = pd.DataFrame({'key': target_index})
@@ -99,7 +99,7 @@ def _realign(s, target_index):
     return result
 
 
-# ── 通达信 hrama 单线 ──────────────────────────────────────
+# ── hrama 单线 ────────────────────────────────────────────────
 
 def _hrama_one(series, N, m, MP):
     """hrama.xx1(N, m, MP) — 单条 HMA 线
@@ -483,6 +483,7 @@ def tf05_calculate(symbol: str, period: str, start: str, end: str,
     """
     from stockpush.services.function_registry import FunctionRegistry
     registry = FunctionRegistry()
+    params = registry.get_params('tf05', param_set_id)
     int_keys = ['N1', 'N2', 'N3', 'N4', 'A0', 'B0', 'C0', 'D0',
                 'MP1', 'MP2', 'MP3', 'MP4', 'LONGP', 'SHORTP', 'M',
                 'PP', 'LL', 'LH']

@@ -1,0 +1,209 @@
+{============================================================}
+{  多周期通道 + 多周期MACD 买卖点系统 (mm2版)                  }
+{  通达信主图叠加指标                                          }
+{  文档: mm2_channel_macd_system.html                         }
+{  通道: mm1(60)/mm2(180)/mm3(360) — 无mm4                   }
+{  信号命名: .B2.1/.S2.1 本级1, .B2.2/.S2.2 本级2,           }
+{           .B2.21/.S2.21 次级2, .B2.3z/.S2.3z 零轴,         }
+{           .B1.3s/.S1.3s 顺势, .B2.11/.S2.11 精细1,         }
+{           .B2.12/.S2.12 精细2                               }
+{============================================================}
+
+{===== 一、通道: SG=HHV 上轨, XG=LLV 下轨 (输出) =====}
+{ mm1=60 / mm2=180 / mm3=360 }
+SG1:HHV(H,60),  COLORCYAN;     XG1:LLV(L,60),  COLORCYAN;
+SG2:HHV(H,180), COLORMAGENTA;  XG2:LLV(L,180), COLORMAGENTA;
+SG3:HHV(H,360), COLORYELLOW;   XG3:LLV(L,360), COLORYELLOW;
+
+{===== 二、基础价格 P (代替 CLOSE) =====}
+{ H11/L11 取相邻两根极值, P1 为合成OHLC, P=SMA(P1,3,1) 平滑 }
+H11:=MAX(H,REF(H,1));
+L11:=MIN(L,REF(L,1));
+P1:=(O+H11+L11+REF(C,1))/4;
+P:=SMA(P1,3,1);
+
+{===== 三、三级 MACD (柱子=2*(DIF-DEA)) =====}
+DIF1:=EMA(P,15)-EMA(P,55);    DEA1:=EMA(DIF1,5);   MC1:=2*(DIF1-DEA1);
+DIF2:=EMA(P,45)-EMA(P,150);   DEA2:=EMA(DIF2,3);   MC2:=2*(DIF2-DEA2);
+DIF3:=EMA(P,90)-EMA(P,300);   DEA3:=EMA(DIF3,3);   MC3:=2*(DIF3-DEA3);
+{===== RSI(14) =====}
+LC:=REF(CLOSE,1);
+RSIV:=SMA(MAX(CLOSE-LC,0),14,1)/SMA(ABS(CLOSE-LC),14,1)*100;
+
+{============================================================}
+{ 四、前置硬闸门 (按信号级别区分)                               }
+{ .B2.1/.B2.2/.B2.21/.B2.3z→mm2轨, .B1.3s→mm1轨, 精细→无    }
+{============================================================}
+GB1:=LLV(L,10)=XG2;  GS1:=HHV(H,10)=SG2;   {本级1: 踩mm2轨}
+GB2:=LLV(L,10)=XG2;  GS2:=HHV(H,10)=SG2;   {本级2: 踩mm2轨}
+Gb3:=LLV(L,15)=XG1;  Gs3:=HHV(H,15)=SG1;   {顺势: 踩mm1轨}
+
+{============================================================}
+{ 五、动态周期T                                                }
+{ 买: 从H>=SG2变H<SG2起计数(T_BUY)                            }
+{ 卖: 从L<=XG2变L>XG2起计数(T_SELL)                           }
+{ BARSLAST返回最近一次触碰轨道的K线到当前的周期数               }
+{============================================================}
+T_BUY:=BARSLAST(H>=SG2);
+T_SELL:=BARSLAST(L<=XG2);
+
+{============================================================}
+{ 六、MACD拐点触发                                             }
+{ 买: ref(柱,2)>ref(柱,1) and 柱>ref(柱,1)  连续两段上升       }
+{ 卖: ref(柱,2)<ref(柱,1) and 柱<ref(柱,1)  连续两段下降       }
+{============================================================}
+MC1_BUY:=REF(MC1,2)>REF(MC1,1) AND MC1>REF(MC1,1);
+MC1_SELL:=REF(MC1,2)<REF(MC1,1) AND MC1<REF(MC1,1);
+MC2_BUY:=REF(MC2,2)>REF(MC2,1) AND MC2>REF(MC2,1);
+MC2_SELL:=REF(MC2,2)<REF(MC2,1) AND MC2<REF(MC2,1);
+MC3_BUY:=REF(MC3,2)>REF(MC3,1) AND MC3>REF(MC3,1);
+MC3_SELL:=REF(MC3,2)<REF(MC3,1) AND MC3<REF(MC3,1);
+
+{============================================================}
+{ 七、按动态周期T选择MACD判断周期                               }
+{ 0<=T<75→m1, 75<=T<175→m2, T>=175→m3                        }
+{============================================================}
+USE1_BUY:=T_BUY<75;
+USE2_BUY:=T_BUY>=75 AND T_BUY<175;
+USE3_BUY:=T_BUY>=175;
+USE1_SELL:=T_SELL<75;
+USE2_SELL:=T_SELL>=75 AND T_SELL<175;
+USE3_SELL:=T_SELL>=175;
+
+MACD_BUY:=(USE1_BUY AND MC1_BUY) OR (USE2_BUY AND MC2_BUY) OR (USE3_BUY AND MC3_BUY);
+MACD_SELL:=(USE1_SELL AND MC1_SELL) OR (USE2_SELL AND MC2_SELL) OR (USE3_SELL AND MC3_SELL);
+
+{============================================================}
+{ 八、三线多空过滤                                             }
+{ 全多(MC1>0且MC2>0且MC3>0)→丢弃; 全空→丢弃                   }
+{ 至少一多一空才通过                                           }
+{============================================================}
+ALL_LONG:=MC1>0 AND MC2>0 AND MC3>0;
+ALL_SHORT:=MC1<0 AND MC2<0 AND MC3<0;
+FLT_OK:=NOT(ALL_LONG) AND NOT(ALL_SHORT);
+
+{============================================================}
+{ 九、通道方向 (BARSLAST纯跳变点比较, 无IF回退)                }
+{============================================================}
+{ mm1方向 }
+SG1_N:=BARSLAST(SG1!=REF(SG1,1));
+SG1_UP:=REF(SG1,SG1_N)>REF(SG1,SG1_N+1);
+SG1_DN:=REF(SG1,SG1_N)<REF(SG1,SG1_N+1);
+XG1_N:=BARSLAST(XG1!=REF(XG1,1));
+XG1_UP:=REF(XG1,XG1_N)>REF(XG1,XG1_N+1);
+XG1_DN:=REF(XG1,XG1_N)<REF(XG1,XG1_N+1);
+CH1_UP:=SG1_UP AND XG1_UP;
+CH1_DN:=SG1_DN AND XG1_DN;
+CH1_ZD:=NOT(CH1_UP) AND NOT(CH1_DN);
+{ mm2方向 }
+SG2_N:=BARSLAST(SG2!=REF(SG2,1));
+SG2_UP:=REF(SG2,SG2_N)>REF(SG2,SG2_N+1);
+SG2_DN:=REF(SG2,SG2_N)<REF(SG2,SG2_N+1);
+XG2_N:=BARSLAST(XG2!=REF(XG2,1));
+XG2_UP:=REF(XG2,XG2_N)>REF(XG2,XG2_N+1);
+XG2_DN:=REF(XG2,XG2_N)<REF(XG2,XG2_N+1);
+CH2_UP:=SG2_UP AND XG2_UP;
+CH2_DN:=SG2_DN AND XG2_DN;
+CH2_ZD:=NOT(CH2_UP) AND NOT(CH2_DN);
+{ mm3方向 }
+SG3_N:=BARSLAST(SG3!=REF(SG3,1));
+SG3_UP:=REF(SG3,SG3_N)>REF(SG3,SG3_N+1);
+SG3_DN:=REF(SG3,SG3_N)<REF(SG3,SG3_N+1);
+XG3_N:=BARSLAST(XG3!=REF(XG3,1));
+XG3_UP:=REF(XG3,XG3_N)>REF(XG3,XG3_N+1);
+XG3_DN:=REF(XG3,XG3_N)<REF(XG3,XG3_N+1);
+CH3_UP:=SG3_UP AND XG3_UP;
+CH3_DN:=SG3_DN AND XG3_DN;
+CH3_ZD:=NOT(CH3_UP) AND NOT(CH3_DN);
+
+{============================================================}
+{ 十、mm2买卖点分类                                            }
+{============================================================}
+{ 方向混合判定: 至少一>0 且 至少一<0 → 方向不一致 → 本级1买卖   }
+HAS_POS:=MC1>0 OR MC2>0 OR MC3>0;
+HAS_NEG:=MC1<0 OR MC2<0 OR MC3<0;
+MIX_DIR:=HAS_POS AND HAS_NEG;     {1=方向不一致, 混合}
+SAME_DIR:=NOT(MIX_DIR);           {1=方向一致(含零轴)}
+
+{ B2_1/S2_1 本级1买卖: 方向不一致, 踩mm2轨 }
+B2_1:=GB1 AND MACD_BUY AND FLT_OK AND MIX_DIR;
+S2_1:=GS1 AND MACD_SELL AND FLT_OK AND MIX_DIR;
+
+{ 本级分离锚点: ref(xg2=xg3,1) and xg2>xg3, 卖反之 }
+MAIN_BUY_T0:=REF(XG2=XG3,1) AND XG2>XG3;
+MAIN_SELL_T0:=REF(SG2=SG3,1) AND SG2<SG3;
+T_MB:=BARSLAST(MAIN_BUY_T0);
+T_MS:=BARSLAST(MAIN_SELL_T0);
+{ 流产: 锚点启动后、拐点出现前轨缩回相等则作废 }
+ABORT_B:=COUNT(XG2=XG3,T_MB)>0;
+ABORT_S:=COUNT(SG2=SG3,T_MS)>0;
+
+{ B2_2/S2_2 本级2买卖: 分离锚点后首个MACD拐点, 未流产, 踩mm2轨 }
+B2_2:=GB2 AND MACD_BUY AND FLT_OK AND SAME_DIR AND T_MB>0 AND COUNT(MACD_BUY,T_MB+1)=1 AND NOT(ABORT_B);
+S2_2:=GS2 AND MACD_SELL AND FLT_OK AND SAME_DIR AND T_MS>0 AND COUNT(MACD_SELL,T_MS+1)=1 AND NOT(ABORT_S);
+
+{============================================================}
+{ 十一、次级分离 T0锚点 (mm1脱离mm2)                           }
+{============================================================}
+SUB_BUY_T0:=REF(XG1=XG2,1) AND XG1>XG2;
+SUB_SELL_T0:=REF(SG1=SG2,1) AND SG1<SG2;
+T_SUBMB:=BARSLAST(SUB_BUY_T0);
+T_SUBMS:=BARSLAST(SUB_SELL_T0);
+SUBABORT_B:=COUNT(XG1=XG2,T_SUBMB)>0;
+SUBABORT_S:=COUNT(SG1=SG2,T_SUBMS)>0;
+
+{ B2_21/S2_21 次级2买卖: 次级分离锚点后首个MACD拐点, 未流产, 踩mm2轨 }
+B2_21:=GB2 AND MACD_BUY AND FLT_OK AND SAME_DIR AND T_SUBMB>0 AND COUNT(MACD_BUY,T_SUBMB+1)=1 AND NOT(SUBABORT_B);
+S2_21:=GS2 AND MACD_SELL AND FLT_OK AND SAME_DIR AND T_SUBMS>0 AND COUNT(MACD_SELL,T_SUBMS+1)=1 AND NOT(SUBABORT_S);
+
+{ B1_3s/S1_3s mm1顺势: 踩mm1轨 + 通道方向 + XG1>XG2 + m1上穿/下穿零轴 }
+B1_3s:=Gb3 AND CROSS(MC1,0) AND (CH1_UP OR (CH1_ZD AND CH2_UP)) AND XG1>XG2 AND FLT_OK;
+S1_3s:=Gs3 AND CROSS(0,MC1) AND (CH1_DN OR (CH1_ZD AND CH2_DN)) AND SG1<SG2 AND FLT_OK;
+
+{ B2_3z/S2_3z 零轴买卖点: 方向一致 + 轨未分离 }
+B2_3z:=GB1 AND MACD_BUY AND FLT_OK AND SAME_DIR AND (XG2<=XG3) AND (XG1<=XG2);
+S2_3z:=GS1 AND MACD_SELL AND FLT_OK AND SAME_DIR AND (SG2>=SG3) AND (SG1>=SG2);
+
+{============================================================}
+{ 十二、mm2精细触发 B2_11/S2_11, B2_12/S2_12                  }
+{============================================================}
+M3_CROSS_UP:=CROSS(DIF3,0);
+M3_CROSS_DN:=CROSS(0,DIF3);
+
+{ 距离m3上穿/下穿的周期数 }
+T_M3UP:=BARSLAST(M3_CROSS_UP);
+T_M3DN:=BARSLAST(M3_CROSS_DN);
+
+{ B2_11: xg1=xg2, m3上穿零轴后首个m1一类买点, MC2>-0.02且MC1>0, 不要求踩轨 }
+B2_11:=XG1=XG2 AND T_M3UP>0 AND COUNT(MC1_BUY,T_M3UP+1)=1 AND MC1_BUY AND COUNT(MC3_SELL,T_M3UP+1)=0 AND MC2>-0.02 AND MC1>0 AND FLT_OK;
+
+{ S2_11: sg1=sg2, m3下穿零轴后首个m1一类卖点, MC2<0.02且MC1<0, 不要求踩轨 }
+S2_11:=SG1=SG2 AND T_M3DN>0 AND COUNT(MC1_SELL,T_M3DN+1)=1 AND MC1_SELL AND COUNT(MC3_BUY,T_M3DN+1)=0 AND MC2<0.02 AND MC1<0 AND FLT_OK;
+
+{ B2_12: xg1=xg2, m3<0且一类买且m1>0, MC2>0, 不要求踩轨 }
+B2_12:=XG1=XG2 AND MC3<0 AND MC3_BUY AND MC2>0 AND MC1>0 AND FLT_OK;
+
+{ S2_12: sg1=sg2, m3>0且一类卖且m1<0, MC2<0, 不要求踩轨 }
+S2_12:=SG1=SG2 AND MC3>0 AND MC3_SELL AND MC2<0 AND MC1<0 AND FLT_OK;
+
+{============================================================}
+{ 输出绘制                                                    }
+{============================================================}
+{ ---- 买点: XG3*0.99 / XG3*0.97 ---- }
+DRAWTEXT(B2_1,XG3*0.99,'.B2.1'),COLORRED;
+DRAWTEXT(B2_2,XG3*0.99,'.B2.2'),COLORRED;
+DRAWTEXT(B2_21,XG3*0.99,'.B2.21'),COLORRED;
+DRAWTEXT(B2_3z,XG3*0.99,'.B2.3z'),COLORRED;
+DRAWTEXT(B1_3s,XG3*0.97,'.B1.3s'),COLORMAGENTA;
+DRAWTEXT(B2_11,XG3*0.97,'.B2.11'),COLORRED;
+DRAWTEXT(B2_12,XG3*0.97,'.B2.12'),COLORRED;
+
+{ ---- 卖点: SG3*1.01 / SG3*1.03 ---- }
+DRAWTEXT(S2_1,SG3*1.01,'.S2.1'),COLORGREEN;
+DRAWTEXT(S2_2,SG3*1.01,'.S2.2'),COLORGREEN;
+DRAWTEXT(S2_21,SG3*1.01,'.S2.21'),COLORGREEN;
+DRAWTEXT(S2_3z,SG3*1.01,'.S2.3z'),COLORGREEN;
+DRAWTEXT(S1_3s,SG3*1.03,'.S1.3s'),COLORCYAN;
+DRAWTEXT(S2_11,SG3*1.03,'.S2.11'),COLORGREEN;
+DRAWTEXT(S2_12,SG3*1.03,'.S2.12'),COLORGREEN;
+

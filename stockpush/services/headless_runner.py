@@ -30,7 +30,7 @@ def run_headless(config: dict, pusher, fetcher, calendar, scheduler, job_func) -
         f"状态: 已启动\n"
         f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"自选股: {len(watchlist)} 只\n"
-        f"数据源: {ds_cfg.get('primary', 'tdxonline')}"
+        f"数据源: {ds_cfg.get('primary', 'xtick')}"
     )
     pusher.push(startup_msg)
 

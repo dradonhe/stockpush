@@ -16,7 +16,7 @@ pip install -e .
 
 编辑 `stockpush/config.local.yaml`：
 
-- `datasources.primary`: 数据源（xtick / akshare / byapi 等）
+- `datasources.primary`: 数据源（xtick / byapi 等）
 - `feishu.webhook`: 飞书 Webhook URL（首次运行会自动生成加密密钥）
   ```bash
   # 加密 webhook URL

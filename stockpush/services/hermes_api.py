@@ -575,6 +575,40 @@ class HermesAPI:
         except Exception as e:
             return self._fail(f"删除失败: {e}")
 
+    def pool_import_codes(self) -> dict:
+        """从 XTick 拉取股票+基金/ETF代码列表并导入代码库"""
+        try:
+            from stockpush.src_mgr.xtick_provider import XTickProvider
+            from stockpush.pool_mgr.pool_mgr import PoolMgrService
+
+            xtick = XTickProvider()
+            svc = PoolMgrService(db_connector=self.db)
+
+            # 一次调用获取所有代码（type-code 格式）
+            # type 1=股票, 30=ETF, 20=LOF, 10=指数, 3=其他
+            raw = xtick._request('/doc/codes', params={})
+            df = xtick._to_df(raw)
+
+            if df is None or df.empty:
+                return self._fail("XTick 返回空数据")
+
+            # _to_df 解析后含 type/code 列（无 name）
+            if 'code' not in df.columns or 'type' not in df.columns:
+                return self._fail("XTick 返回格式异常")
+
+            stock_df = df[df['type'] == 1][['code', 'type']].copy()
+            fund_df = df[df['type'] != 1][['code', 'type']].copy()
+
+            stock_count = svc.import_stock_codes(stock_df)
+            fund_count = svc.import_fund_codes(fund_df)
+
+            total = stock_count + fund_count
+            return self._ok(
+                {"stock": stock_count, "fund": fund_count, "total": total, "provider": "xtick"},
+                f"XTick 导入完成: 股票 {stock_count}, 基金/ETF {fund_count}, 合计 {total}")
+        except Exception as e:
+            return self._fail(f"导入代码失败: {e}")
+
 
     # ── Data Query ──────────────────────────────────────────
 
@@ -668,28 +702,28 @@ class HermesAPI:
             db.close()
 
     def dividend_view(self) -> dict:
-        """Return dividend/ex-right date for each watchlist stock."""
-        import pandas as pd
-        import akshare as ak
+        """Return dividend/ex-right date for each watchlist stock.
 
+        Uses tb_calendar / tb_signal_log data instead.
+        """
         symbols = self.watcher.get_symbols()
         if not symbols:
             return self._fail("自选股池为空")
 
         results = []
         for symbol in symbols:
-            date_val = None
             try:
-                df = ak.stock_fhps_detail_ths(symbol=symbol)
-                if df is not None and not df.empty:
-                    for col in ["A股股权登记日", "A股除权除息日"]:
-                        if col in df.columns:
-                            dates = df[col].dropna()
-                            if not dates.empty:
-                                date_val = str(pd.to_datetime(dates.iloc[-1]).strftime("%Y-%m-%d"))
-                                break
+                from stockpush.pg_connector import PGConnector
+                db = PGConnector()
+                rows = db.execute_query(
+                    "SELECT ex_date FROM tb_calendar WHERE symbol = %s "
+                    "AND ex_date IS NOT NULL ORDER BY ex_date DESC LIMIT 1",
+                    (symbol,)
+                )
+                db.close()
+                date_val = str(rows[0]['ex_date']) if rows else None
             except Exception:
-                pass
+                date_val = None
             name = self._get_stock_name(symbol)
             results.append({"symbol": symbol, "name": name, "dividend_date": date_val})
         return self._ok({"results": results})

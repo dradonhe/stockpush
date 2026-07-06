@@ -8,7 +8,7 @@ import time
 import importlib
 from typing import Union, List, Dict, Optional, Any
 import pandas as pd
-from stockpush.db_connector import DBConnector
+from stockpush.pg_connector import PGConnector
 
 
 class DataSourceRegistry:
@@ -44,7 +44,7 @@ class DataSourceRegistry:
     }
     
     def __init__(self):
-        self.db = DBConnector()
+        self.db = PGConnector()
         self.logger = LogManager().get_logger('DataSourceRegistry')
         self.providers = {}  # 缓存Provider实例 {provider_name: provider_instance}
         self.registry = []   # 注册表数据
@@ -113,21 +113,12 @@ class DataSourceRegistry:
             )
         """)
         providers = [
-            ('akshare', 'AkShare', 'stockpush.src_mgr.src_provider.AkShareProvider', True, 10,
-             '{"timeout":30,"retry":3}', 30, 3,
-             True,True,True,True, True,True,True,True, True,True,True,True),
             ('baostock', 'Baostock', 'stockpush.src_mgr.src_provider.BaostockProvider', True, 20,
              '{"timeout":30,"retry":3}', 30, 3,
              True,True,False,False, False,False,False,False, True,False,True,True),
             ('byapi', '币赢API', 'stockpush.src_mgr.src_provider.ByapiProvider', True, 15,
              '{"licence":"","timeout":10,"retry":2}', 10, 2,
              True,True,True,False, True,True,True,False, True,True,True,False),
-            ('tdx_local', '通达信文件', 'stockpush.src_mgr.tdx_local_provider.TdxLocalProvider', True, 30,
-             '{"tdx_path":"C:\\\\new_tdx","timeout":5}', 5, 1,
-             True,True,False,False, True,True,False,False, False,False,False,False),
-            ('tdx_online', '通达信接口', 'stockpush.src_mgr.tdx_online_provider.TdxOnlineProvider', True, 25,
-             '{"tdx_path":"C:\\\\new_tdx","timeout":15}', 15, 2,
-             True,True,True,True, True,True,True,True, True,True,True,False),
             ('xtick', 'XTick', 'stockpush.src_mgr.xtick_provider.XTickProvider', True, 12,
              '{"timeout":15}', 15, 2,
              True,True,True,True, True,True,True,True, True,True,True,False),

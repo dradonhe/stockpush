@@ -254,11 +254,6 @@ custom_functions:
     file: TF05.py
     func: TF05
     name: TF05
-  - desc: TF05双均线SID状态字节(30M)
-    dir: ${PROJECT_DIR}/stockpush/userfunc
-    file: TF05.py
-    func: TF05
-    name: TF05_30M
 datasources:
   primary: xtick
 feishu:

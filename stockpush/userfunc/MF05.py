@@ -79,7 +79,7 @@ def _realign(s, target_index):
     return result
 
 
-# ── 合并公式函数（一次数据通道，带全部通达信参数）────────
+# ── 合并公式函数（一次数据通道）────────────────────────────
 
 def _hrama(series, N1, m1, MP1, N2, m2, MP2):
     """hrama — 一次数据通道算两组均线值
@@ -104,7 +104,7 @@ def _hrama(series, N1, m1, MP1, N2, m2, MP2):
 
 
 def _ugpdx(price, low, high, N, m1, m2):
-    """ugpdx — 通达信 Ugpdx 公式
+    """ugpdx — Ugpdx 公式
     QSX = EMA((p-LLV(LOW,m1))/(HHV(HIGH,m2)-LLV(LOW,m1))*4, N) * 100
     返回 qsx, qsx > ref(qsx,1), qsx < ref(qsx,1)"""
     MINL = _LLV(low, m1)
@@ -125,7 +125,7 @@ def _compute(df, df_daily, *,
             LH=72, LL=30, PP=13):
     """
     MF05 核心计算。接收 5M + 30M DataFrame，返回信号 dict。
-    参数含义同通达信 MF05V2 INPUT (N1..N4, m1..m4, MP1..MP4, LONGP, SHORTP, M, LH, LL, PP)。
+    参数含义同 MF05V2 INPUT (N1..N4, m1..m4, MP1..MP4, LONGP, SHORTP, M, LH, LL, PP)。
     """
     # 1. 当前周期 (5M)
     P = _P(df)
@@ -285,7 +285,7 @@ def mf05(symbol, *,
         min_5m / min_daily — 限制取尾部行数（None=全量）
                               mf05_min_bars() 返回值可用作下限
 
-    关键字参数 — 全部通达信 MF05V2 INPUT，默认值按原公式:
+    关键字参数 — 全部 MF05V2 INPUT，默认值按原公式:
         N1..N4, m1..m4, MP1..MP4 — hrama 参数
         LONGP / SHORTP / M       — MACD 参数
         LH / LL / PP             — 第四类买卖点 RSI 参数

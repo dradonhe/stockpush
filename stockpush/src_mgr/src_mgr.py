@@ -2,7 +2,6 @@
 数据源管理服务
 提供数据源状态管理、能力筛选、数据接入接口封装
 """
-# import duckdb  # 已迁移到 PostgreSQL（已删除 duckdb 依赖）
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from stockpush.log_manager import LogManager
@@ -49,19 +48,11 @@ class SrcMgrService:
     def _init_providers_fallback(self):
         """备用初始化：当注册表不可用时使用硬编码"""
         try:
-            from .src_provider import AkShareProvider, BaostockProvider, ByapiProvider
-            self._providers['akshare'] = AkShareProvider()
+            from .src_provider import BaostockProvider, ByapiProvider
             self._providers['baostock'] = BaostockProvider()
             self._providers['byapi'] = ByapiProvider()
         except Exception as e:
             self.logger.warning(f"备用初始化部分失败: {e}")
-        try:
-            from .tdx_online_provider import TdxOnlineProvider
-            import os
-            tdx_path = os.environ.get('TDX_PATH', r'E:\new_tdx')
-            self._providers['tdxonline'] = TdxOnlineProvider(tdx_path=tdx_path)
-        except Exception as e:
-            self.logger.warning(f"TdxOnline Provider 加载失败: {e}")
         try:
             from .xtick_provider import XTickProvider
             self._providers['xtick'] = XTickProvider()
@@ -70,8 +61,8 @@ class SrcMgrService:
     
     def _get_conn(self):
         """获取数据库连接"""
-        from stockpush.db_connector import DBConnector
-        return DBConnector()
+        from stockpush.pg_connector import PGConnector
+        return PGConnector()
     
     # ========== 数据源状态管理接口 ==========
     
@@ -80,7 +71,7 @@ class SrcMgrService:
         获取数据源状态
         
         Args:
-            provider: 数据源名称 'akshare', 'baostock'
+            provider: 数据源名称 'baostock'
         
         Returns:
             Dict 或 None: 状态信息

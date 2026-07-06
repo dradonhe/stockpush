@@ -12,7 +12,7 @@ from datetime import datetime
 from concurrent import futures
 import numpy as np
 
-from stockpush.db_connector import DBConnector
+from stockpush.pg_connector import PGConnector
 from stockpush.log_manager import LogManager
 
 
@@ -53,13 +53,13 @@ class SourceComparatorService:
         初始化数据源对比服务
         
         Args:
-            db_connector: DBConnector 实例，如无则使用 PostgreSQL 默认连接
+            db_connector: PGConnector 实例，如无则使用 PostgreSQL 默认连接
         """
         if db_connector is not None:
             self.db_connector = db_connector
         else:
-            from stockpush.db_connector import DBConnector
-            self.db_connector = DBConnector()
+            from stockpush.pg_connector import PGConnector
+            self.db_connector = PGConnector()
         self.logger = LogManager().get_logger("SourceComparator")
         self._init_table()
     
@@ -638,8 +638,7 @@ class SourceComparatorService:
         Returns:
             (is_valid, error_message)
         """
-        # 新增 xtick 支持
-        valid_sources = ['akshare', 'baostock', 'byapi', 'tdx_local', 'tdx_online', 'xtick']
+        valid_sources = ['baostock', 'byapi', 'xtick']
         valid_asset_types = ['stock', 'fund']
         valid_periods = ['1d', '1m', '5m', '15m', '30m', '60m']
         
@@ -668,7 +667,6 @@ class SourceComparatorService:
         period: str,
         start_date: str,
         end_date: str,
-        tdx_path: str = ''
     ) -> List[Dict]:
         """
         从指定数据源拉取数据（优先使用fetch_kline，回退到call接口）
@@ -732,14 +730,7 @@ class SourceComparatorService:
                 adjust='qfq', asset_type=asset_type, provider_name=source_name
             )
 
-            if isinstance(df, int) and df == -1:
-                if source_name == 'tdx_online':
-                    raise DataSourceError(
-                        f"TdxOnline数据源不可用: TQ接口未初始化。"
-                        f"请确保通达信客户端已启动并登录，或使用其他数据源"
-                    )
-                else:
-                    raise DataSourceError(f"数据源[{source_name}]不支持该能力或获取失败")
+            raise DataSourceError(f"数据源[{source_name}]不支持该能力或获取失败")
             if df is None or (hasattr(df, 'empty') and df.empty):
                 raise NoDataError(f"数据源[{source_name}]查询结果为空")
 
@@ -851,11 +842,7 @@ class SourceComparatorService:
         
         # A类异常：连接失败
         if isinstance(exception, DataSourceError):
-            # 首先检查TQ初始化失败
-            if any(kw in error_msg for kw in ['tq接口未初始化', 'tq未初始化', 'tq数据接口', '通达信客户端']):
-                return 'TQ_INIT_FAILED'
-            # 区分数据源错误的具体原因
-            elif any(kw in error_msg for kw in ['不支持', 'unsupported', 'not supported']):
+            if any(kw in error_msg for kw in ['不支持', 'unsupported', 'not supported']):
                 return 'VALIDATION_ERROR'
             elif any(kw in error_msg for kw in ['数据不存在', '未获取到数据', 'no data', 'empty', '为空', '无数据']):
                 return 'NO_DATA'
@@ -882,9 +869,7 @@ class SourceComparatorService:
         
         else:
             # 根据错误信息推断
-            if any(kw in error_msg for kw in ['tq接口未初始化', 'tq未初始化', '通达信客户端']):
-                return 'TQ_INIT_FAILED'
-            elif any(kw in error_msg for kw in ['empty', '为空', 'no data', '无数据']):
+            if any(kw in error_msg for kw in ['empty', '为空', 'no data', '无数据']):
                 return 'NO_DATA'
             elif any(kw in error_msg for kw in ['network', 'connection', '网络', '连接']):
                 return 'CONNECTION_ERROR'
@@ -997,7 +982,6 @@ class SourceComparatorService:
         start_date: str,
         end_date: str,
         save_log: bool = True,
-        tdx_path: str = ''
     ) -> Dict[str, Any]:
         """
         双源历史数据对比
@@ -1043,12 +1027,10 @@ class SourceComparatorService:
             
             executor = futures.ThreadPoolExecutor(max_workers=2)
             try:
-                future_a = executor.submit(self._fetch_data_from_source, source_a, asset_type, 
-                                          symbol, period, start_date, end_date, tdx_path)
-                future_b = executor.submit(self._fetch_data_from_source, source_b, asset_type, 
-                                          symbol, period, start_date, end_date, tdx_path)
-                
-                # 使用 60 秒超时（而不是 30 秒），给网络请求充足时间
+                future_a = executor.submit(self._fetch_data_from_source, source_a, asset_type,
+                                          symbol, period, start_date, end_date)
+                future_b = executor.submit(self._fetch_data_from_source, source_b, asset_type,
+                                          symbol, period, start_date, end_date)
                 try:
                     data_a = future_a.result(timeout=60)
                 except futures.TimeoutError:

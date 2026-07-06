@@ -6,7 +6,7 @@
 {  信号命名: .B2.1/.S2.1 本级1, .B2.2/.S2.2 本级2,           }
 {           .B2.21/.S2.21 次级2, .B2.3z/.S2.3z 零轴,         }
 {           .B1.3s/.S1.3s 顺势, .B2.11/.S2.11 精细1,         }
-{           .B2.12/.S2.12 精细2                               }
+{           .B2.12/.S2.12 精细2, .b4/.s4 RSI顺势              }
 {============================================================}
 
 {===== 一、通道: SG=HHV 上轨, XG=LLV 下轨 (输出) =====}
@@ -29,11 +29,20 @@ DIF3:=EMA(P,90)-EMA(P,300);   DEA3:=EMA(DIF3,3);   MC3:=2*(DIF3-DEA3);
 {===== RSI(14) =====}
 LC:=REF(CLOSE,1);
 RSIV:=SMA(MAX(CLOSE-LC,0),14,1)/SMA(ABS(CLOSE-LC),14,1)*100;
+{===== RSIH: RSI(12) =====}
+LC1:=REF(CLOSE,1);
+RSIH:=SMA(MAX(CLOSE-LC1,0),12,1)/SMA(ABS(CLOSE-LC1),12,1)*100;
 
 {============================================================}
 { 四、前置硬闸门 (按信号级别区分)                               }
 { .B2.1/.B2.2/.B2.21/.B2.3z→mm2轨, .B1.3s→mm1轨, 精细→无    }
 {============================================================}
+{============================================================}
+{ RSI信号踩轨闸门                                              }
+{============================================================}
+Gb4_1:=LLV(L,15)=XG1;  Gs4_1:=HHV(H,15)=SG1;  {踩mm1轨}
+Gb4_2:=LLV(L,10)=XG2;  Gs4_2:=HHV(H,10)=SG2;  {踩mm2轨}
+Gb4_3:=LLV(L,10)=XG3;  Gs4_3:=HHV(H,10)=SG3;  {踩mm3轨}
 GB1:=LLV(L,10)=XG2;  GS1:=HHV(H,10)=SG2;   {本级1: 踩mm2轨}
 GB2:=LLV(L,10)=XG2;  GS2:=HHV(H,10)=SG2;   {本级2: 踩mm2轨}
 Gb3:=LLV(L,15)=XG1;  Gs3:=HHV(H,15)=SG1;   {顺势: 踩mm1轨}
@@ -185,6 +194,18 @@ B2_12:=XG1=XG2 AND MC3<0 AND MC3_BUY AND MC2>0 AND MC1>0 AND FLT_OK;
 
 { S2_12: sg1=sg2, m3>0且一类卖且m1<0, MC2<0, 不要求踩轨 }
 S2_12:=SG1=SG2 AND MC3>0 AND MC3_SELL AND MC2<0 AND MC1<0 AND FLT_OK;
+{============================================================}
+{ 十三、b4/s4 RSI顺势: RSIH(12)穿23/78 + 踩轨 + 通道方向       }
+{============================================================}
+{ b4: RSIH上穿23 + 踩轨 + (本级升 或 (本级震且上级升)) }
+b4:=(Gb4_1 AND (CH1_UP OR (CH1_ZD AND CH2_UP)) OR
+     Gb4_2 AND (CH2_UP OR (CH2_ZD AND CH3_UP)) OR
+     Gb4_3 AND (CH3_UP OR CH3_ZD)) AND CROSS(RSIH,23);
+
+{ s4: RSIH下穿78 + 踩轨 + (本级跌 或 (本级震且上级跌)) }
+s4:=(Gs4_1 AND (CH1_DN OR (CH1_ZD AND CH2_DN)) OR
+     Gs4_2 AND (CH2_DN OR (CH2_ZD AND CH3_DN)) OR
+     Gs4_3 AND (CH3_DN OR CH3_ZD)) AND CROSS(78,RSIH);
 
 {============================================================}
 { 输出绘制                                                    }
@@ -197,6 +218,7 @@ DRAWTEXT(B2_3z,XG3*0.99,'.B2.3z'),COLORRED;
 DRAWTEXT(B1_3s,XG3*0.97,'.B1.3s'),COLORMAGENTA;
 DRAWTEXT(B2_11,XG3*0.97,'.B2.11'),COLORRED;
 DRAWTEXT(B2_12,XG3*0.97,'.B2.12'),COLORRED;
+DRAWTEXT(b4,XG3*0.95,'.b4'),COLORYELLOW;
 
 { ---- 卖点: SG3*1.01 / SG3*1.03 ---- }
 DRAWTEXT(S2_1,SG3*1.01,'.S2.1'),COLORGREEN;
@@ -206,4 +228,5 @@ DRAWTEXT(S2_3z,SG3*1.01,'.S2.3z'),COLORGREEN;
 DRAWTEXT(S1_3s,SG3*1.03,'.S1.3s'),COLORCYAN;
 DRAWTEXT(S2_11,SG3*1.03,'.S2.11'),COLORGREEN;
 DRAWTEXT(S2_12,SG3*1.03,'.S2.12'),COLORGREEN;
+DRAWTEXT(s4,SG3*1.05,'.s4'),COLORYELLOW;
 

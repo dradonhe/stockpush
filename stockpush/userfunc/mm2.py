@@ -189,12 +189,26 @@ def _compute(df, *,
     RSIV_den = _S(_mytt_SMA(_S(np.abs(diff_cl.values), index=C.index), 14, 1),
                   index=C.index)
     RSIV = RSIV_num / RSIV_den * 100
+    # ── RSIH: RSI(12) ────────────────────────────────────────
+    # RSIH := SMA(MAX(CLOSE-LC1,0),12,1) / SMA(ABS(CLOSE-LC1),12,1) * 100
+    LC1 = _REF(C, 1)
+    diff_c1 = C - LC1
+    RSIH_num = _S(_mytt_SMA(_S(np.maximum(diff_c1.values, 0), index=C.index), 12, 1),
+                  index=C.index)
+    RSIH_den = _S(_mytt_SMA(_S(np.abs(diff_c1.values), index=C.index), 12, 1),
+                  index=C.index)
+    RSIH = RSIH_num / RSIH_den * 100
 
     # ── 四、前置硬闸门 (按信号级别区分) ─────────────────────
     # GB1/GS1: 本级1 踩mm2轨;  Gb3/Gs3: 顺势 踩mm1轨
     GB1 = _LLV(L, 10) == XG2;  GS1 = _HHV(H, 10) == SG2
     GB2 = _LLV(L, 10) == XG2;  GS2 = _HHV(H, 10) == SG2
     Gb3 = _LLV(L, 15) == XG1;  Gs3 = _HHV(H, 15) == SG1
+    # ── RSI 信号踩轨闸门 ────────────────────────────────────
+    # Gb4_1: 踩mm1轨; Gb4_2: 踩mm2轨; Gb4_3: 踩mm3轨
+    Gb4_1 = _LLV(L, 15) == XG1;  Gs4_1 = _HHV(H, 15) == SG1
+    Gb4_2 = _LLV(L, 10) == XG2;  Gs4_2 = _HHV(H, 10) == SG2
+    Gb4_3 = _LLV(L, 10) == XG3;  Gs4_3 = _HHV(H, 10) == SG3
 
     # ── 五、动态周期 T ──────────────────────────────────────
     # 买: 从 H>=SG2 变 H<SG2 起计数;  卖反向
@@ -330,19 +344,30 @@ def _compute(df, *,
              & (_COUNT(MC3_BUY,  T_M3DN + 1) == 0)
              & (MC2 < 0.02) & (MC1 < 0) & FLT_OK)
 
-    # B2_12: xg1=xg2, m3<0 且一类买且 m1>0, MC2>0
+    # B2_12: xg1=xg2, m3<0 且一类买且 m1>0, MC2>-0.02
     B2_12 = ((XG1 == XG2)
              & (MC3 < 0) & MC3_BUY
-             & (MC2 > 0) & (MC1 > 0) & FLT_OK)
+             & (MC2 > -0.02) & (MC1 > 0) & FLT_OK)
 
-    # S2_12: sg1=sg2, m3>0 且一类卖且 m1<0, MC2<0
+    # S2_12: sg1=sg2, m3>0 且一类卖且 m1<0, MC2<0.02
     S2_12 = ((SG1 == SG2)
              & (MC3 > 0) & MC3_SELL
-             & (MC2 < 0) & (MC1 < 0) & FLT_OK)
+             & (MC2 < 0.02) & (MC1 < 0) & FLT_OK)
+    # ── b4/s4 RSI 顺势 ─────────────────────────────────────
+    # b4: RSIH上穿23 + 踩轨 + (本级升 或 (本级震且上级升))
+    b4 = (((Gb4_1 & (CH1_UP | (CH1_ZD & CH2_UP)))
+           | (Gb4_2 & (CH2_UP | (CH2_ZD & CH3_UP)))
+           | (Gb4_3 & (CH3_UP | CH3_ZD)))
+          & _CROSS(RSIH, 23))
+    # s4: RSIH下穿78 + 踩轨 + (本级跌 或 (本级震且上级跌))
+    s4 = (((Gs4_1 & (CH1_DN | (CH1_ZD & CH2_DN)))
+           | (Gs4_2 & (CH2_DN | (CH2_ZD & CH3_DN)))
+           | (Gs4_3 & (CH3_DN | CH3_ZD)))
+          & _CROSS(78, RSIH))
 
     # ── 综合买卖信号 ────────────────────────────────────────
-    buy  = B2_1 | B2_2 | B2_21 | B1_3s | B2_3z | B2_11 | B2_12
-    sell = S2_1 | S2_2 | S2_21 | S1_3s | S2_3z | S2_11 | S2_12
+    buy  = B2_1 | B2_2 | B2_21 | B1_3s | B2_3z | B2_11 | B2_12 | b4
+    sell = S2_1 | S2_2 | S2_21 | S1_3s | S2_3z | S2_11 | S2_12 | s4
 
     # ── 信号标签 (多信号同bar用 + 拼接) ────────────────────
     buy_label = (
@@ -353,6 +378,7 @@ def _compute(df, *,
         + B2_3z.map({True: '+.B2.3z', False: ''})
         + B2_11.map({True: '+.B2.11', False: ''})
         + B2_12.map({True: '+.B2.12', False: ''})
+        + b4.map({True: '+.b4', False: ''})
     ).str.lstrip('+')
 
     sell_label = (
@@ -363,6 +389,7 @@ def _compute(df, *,
         + S2_3z.map({True: '+.S2.3z', False: ''})
         + S2_11.map({True: '+.S2.11', False: ''})
         + S2_12.map({True: '+.S2.12', False: ''})
+        + s4.map({True: '+.s4', False: ''})
     ).str.lstrip('+')
 
     return {
@@ -374,7 +401,7 @@ def _compute(df, *,
         "dif1": DIF1, "dif2": DIF2, "dif3": DIF3,
         "mc1": MC1, "mc2": MC2, "mc3": MC3,
         # RSI
-        "rsiv": RSIV,
+        "rsiv": RSIV, "rsih": RSIH,
         # 通道方向
         "ch1_up": CH1_UP, "ch1_dn": CH1_DN, "ch1_zd": CH1_ZD,
         "ch2_up": CH2_UP, "ch2_dn": CH2_DN, "ch2_zd": CH2_ZD,
@@ -387,6 +414,7 @@ def _compute(df, *,
         "B2_3z": B2_3z, "S2_3z": S2_3z,
         "B2_11": B2_11, "S2_11": S2_11,
         "B2_12": B2_12, "S2_12": S2_12,
+        "b4": b4, "s4": s4,
         # 综合
         "buy": buy, "sell": sell,
         "buy_label": buy_label, "sell_label": sell_label,

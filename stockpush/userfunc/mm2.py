@@ -20,7 +20,12 @@ MM2 多周期通道 + 多周期MACD 买卖点系统
 """
 
 import sys
-sys.path.insert(0, r"/opt/stockpush")
+import os as _os
+_project_root = _os.path.normpath(
+    _os.path.join(_os.path.dirname(__file__), '..', '..')
+)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 import numpy as np
 import pandas as pd

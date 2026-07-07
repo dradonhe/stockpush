@@ -6,6 +6,7 @@ import os
 import sys
 import json
 import logging
+import shutil
 import subprocess
 import threading
 from contextlib import contextmanager
@@ -27,8 +28,14 @@ class Console:
 
     # ── service running check (systemd managed) ──
     @staticmethod
+    def _has_systemctl() -> bool:
+        return shutil.which("systemctl") is not None
+
+    @staticmethod
     def _is_running() -> bool:
         """Check if F5.1 monitor service is active via systemctl."""
+        if not Console._has_systemctl():
+            return False
         r = subprocess.run(
             ["systemctl", "is-active", "f51-start.service"],
             capture_output=True, text=True
@@ -492,13 +499,17 @@ class Console:
 
         print("启动监控服务...")
         sc = self.config.get("schedule", {})
-        subprocess.run(["systemctl", "start", "f51-start.service"])
-        self._log("监控已启动")
-        print(f"监控已启动")
-        print(f"调度: {sc.get('morning_start','09:25')}-{sc.get('morning_end','11:35')} / "
-              f"{sc.get('afternoon_start','13:00:05')}-{sc.get('afternoon_end','15:05')}，"
-              f"每 {sc.get('interval_seconds', 65)} 秒")
-        print(f"日志: log/f51-headless.log")
+        if self._has_systemctl():
+            subprocess.run(["systemctl", "start", "f51-start.service"])
+            self._log("监控已启动")
+            print(f"监控已启动")
+            print(f"调度: {sc.get('morning_start','09:25')}-{sc.get('morning_end','11:35')} / "
+                  f"{sc.get('afternoon_start','13:00:05')}-{sc.get('afternoon_end','15:05')}，"
+                  f"每 {sc.get('interval_seconds', 65)} 秒")
+            print(f"日志: log/f51-headless.log")
+        else:
+            print("⚠ systemctl 不可用，请手动启动:")
+            print(f"  python3 -m stockpush.worker --headless &")
         self._press_enter()
 
     def _stop(self):
@@ -507,7 +518,10 @@ class Console:
             print("监控未运行。")
             self._press_enter()
             return
-        subprocess.run(["systemctl", "stop", "f51-start.service"])
+        if self._has_systemctl():
+            subprocess.run(["systemctl", "stop", "f51-start.service"])
+        else:
+            print("⚠ systemctl 不可用，请手动停止: kill $(cat /tmp/stockpush.pid)")
         self._log_silent = False
         logging.getLogger().setLevel(logging.INFO)
         self._log("监控已停止")
@@ -557,11 +571,13 @@ class Console:
             groups.setdefault(fn, []).append(s)
         for func_name, sigs in groups.items():
             print(f"\n  {func_name}:")
-            print(f"    {'代码':<10} {'方向':<6} {'时间':<22} {'说明':<20}")
-            print(f"    {'----':<10} {'----':<6} {'----':<22} {'----':<20}")
+            print(f"    {'代码':<10} {'方向':<6} {'时间':<22} {'开盘价':<10} {'说明':<20}")
+            print(f"    {'----':<10} {'----':<6} {'----':<22} {'----':<10} {'----':<20}")
             for s in sigs[:10]:
+                op = s.get('open_price')
+                op_str = f"{float(op):.2f}" if op else ""
                 print(f"    {s['symbol']}  {'BUY' if s.get('direction')=='buy' else 'SELL'}  "
-                      f"{str(s.get('signal_time',''))}  {s.get('indicator','')}")
+                      f"{str(s.get('signal_time',''))}  {op_str:<10} {s.get('indicator','')}")
         total = sum(len(v) for v in groups.values())
         print(f"\n共 {total} 个信号")
         self._press_enter()
@@ -1002,12 +1018,14 @@ class Console:
         try:
             signals = self.api.engine.backtest(selected.name, selected.period, symbol, start, end)
             if signals:
-                print(f"  {'时间':<22} {'代码':<10} {'方向':<6} {'说明':<20}")
-                print(f"  {'----':<22} {'----':<10} {'----':<6} {'----':<20}")
+                print(f"  {'时间':<22} {'代码':<10} {'方向':<6} {'开盘价':<10} {'说明':<20}")
+                print(f"  {'----':<22} {'----':<10} {'----':<6} {'----':<10} {'----':<20}")
                 print(f"共 {len(signals)} 个信号:")
                 for s in signals:
+                    op = s.get('open_price')
+                    op_str = f"{float(op):.2f}" if op else ""
                     print(f"  {s.get('time','')}  {s.get('symbol','')}  "
-                          f"{s.get('direction','')}  {s.get('indicator','')}")
+                          f"{s.get('direction','')}  {op_str:<10} {s.get('indicator','')}")
             else:
                 print("无信号。")
         except Exception as e:
@@ -1245,6 +1263,10 @@ class Console:
 
     def _cfg_register_systemd(self):
         self._print_header("注册系统自启")
+        if not self._has_systemctl():
+            print("⚠ systemctl 不可用，此功能仅支持 Linux systemd 环境。")
+            self._press_enter()
+            return
         print(f"  项目路径: {self.project_root}")
         print(f"  Python:    {self.project_root / '.venv/bin/python3'}")
         print(f"  Worker:    {self.f51_root / 'worker.py'}")
@@ -1322,6 +1344,10 @@ WantedBy=timers.target
 
     def _cfg_unregister_systemd(self):
         self._print_header("取消系统自启")
+        if not self._has_systemctl():
+            print("⚠ systemctl 不可用，此功能仅支持 Linux systemd 环境。")
+            self._press_enter()
+            return
         c = self._input("确认取消系统自启? (y/n): ").lower()
         if c != 'y':
             print("已取消。")

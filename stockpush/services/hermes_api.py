@@ -5,10 +5,15 @@
 """
 
 import logging
+import shutil
 import subprocess
 from datetime import datetime, date
 from pathlib import Path
 from typing import Any
+
+
+def _has_systemctl() -> bool:
+    return shutil.which("systemctl") is not None
 
 import yaml
 from stockpush.services.feishu_pusher import FeishuPusher
@@ -221,9 +226,12 @@ class HermesAPI:
 
     def status(self) -> dict:
         """Return full status report."""
-        r = subprocess.run(["systemctl", "is-active", "f51-start.service"],
-                           capture_output=True, text=True)
-        running = r.stdout.strip() == "active"
+        if _has_systemctl():
+            r = subprocess.run(["systemctl", "is-active", "f51-start.service"],
+                               capture_output=True, text=True)
+            running = r.stdout.strip() == "active"
+        else:
+            running = False
         nxt = None
         symbols = self.watcher.get_symbols()
         signals_today = self._get_today_signals(symbols)
@@ -277,7 +285,9 @@ class HermesAPI:
     # ── Monitor Control ─────────────────────────────────────
 
     def start_monitor(self) -> dict:
-        """Start monitor via systemctl."""
+        """Start monitor via systemctl (or direct on Termux)."""
+        if not _has_systemctl():
+            return self._fail("systemctl 不可用，请使用 deploy/termux/stockpush-daemon.sh start 启动")
         r = subprocess.run(["systemctl", "is-active", "f51-start.service"],
                            capture_output=True, text=True)
         if r.stdout.strip() == "active":
@@ -307,7 +317,6 @@ class HermesAPI:
                                 "result": f"出错: {e}",
                             })
 
-        subprocess.run(["systemctl", "start", "f51-start.service"])
 
         sc = self.config.get("schedule", {})
         return self._ok({
@@ -321,7 +330,9 @@ class HermesAPI:
         }, "监控已启动")
 
     def stop_monitor(self) -> dict:
-        """Stop monitor via systemctl."""
+        """Stop monitor via systemctl (or direct on Termux)."""
+        if not _has_systemctl():
+            return self._fail("systemctl 不可用，请使用 deploy/termux/stockpush-daemon.sh stop 停止")
         r = subprocess.run(["systemctl", "is-active", "f51-start.service"],
                            capture_output=True, text=True)
         if r.stdout.strip() != "active":

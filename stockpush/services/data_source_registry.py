@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 # ── Provider class map ─────────────────────────────────────────
 
 _PROVIDER_CLASSES: Dict[str, str] = {
-    'baostock':   'stockpush.src_mgr.src_provider.BaostockProvider',
     'byapi':      'stockpush.src_mgr.src_provider.ByapiProvider',
     'xtick':      'stockpush.src_mgr.xtick_provider.XTickProvider',
 }
@@ -86,9 +85,6 @@ class DataSourceRegistry:
         """)
 
         providers = [
-            ('baostock', 'Baostock', 'stockpush.src_mgr.src_provider.BaostockProvider', True, 20,
-             '{"timeout":30,"retry":3}', 30, 3,
-             True,True,False,False, False,False,False,False, True,False,True,True),
             ('byapi', '币赢API', 'stockpush.src_mgr.src_provider.ByapiProvider', True, 15,
              '{"licence":"","timeout":10,"retry":2}', 10, 2,
              True,True,True,False, True,True,True,False, True,True,True,False),

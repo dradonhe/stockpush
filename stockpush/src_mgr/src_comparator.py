@@ -638,7 +638,7 @@ class SourceComparatorService:
         Returns:
             (is_valid, error_message)
         """
-        valid_sources = ['baostock', 'byapi', 'xtick']
+        valid_sources = ['byapi', 'xtick']
         valid_asset_types = ['stock', 'fund']
         valid_periods = ['1d', '1m', '5m', '15m', '30m', '60m']
         

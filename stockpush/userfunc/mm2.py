@@ -31,6 +31,8 @@ import numpy as np
 import pandas as pd
 from MyTT import EMA, HHV, LLV, SMA as _mytt_SMA
 from MyTT import REF as _mytt_REF
+import logging
+log = logging.getLogger(__name__)
 
 
 # ── 底层辅助 ────────────────────────────────────────────────
@@ -186,21 +188,21 @@ def _compute(df, *,
     DIF2 = _EMA(P, 45)  - _EMA(P, 150);  DEA2 = _EMA(DIF2, 3);   MC2 = 2 * (DIF2 - DEA2)
     DIF3 = _EMA(P, 90)  - _EMA(P, 300);  DEA3 = _EMA(DIF3, 3);   MC3 = 2 * (DIF3 - DEA3)
 
-    # ── RSI(14) ──────────────────────────────────────────────
-    LC = _REF(C, 1)
-    diff_cl = C - LC
-    RSIV_num = _S(_mytt_SMA(_S(np.maximum(diff_cl.values, 0), index=C.index), 14, 1),
+    # ── RSI(14) — 基于 P1 (原始综合价，不经 SMA 平滑) ────────
+    P1_s = _S(P1, index=C.index)
+    P1_prev = _REF(P1_s, 1)
+    diff_pl = P1_s - P1_prev
+    RSIV_num = _S(_mytt_SMA(_S(np.maximum(diff_pl.values, 0), index=C.index), 14, 1),
                   index=C.index)
-    RSIV_den = _S(_mytt_SMA(_S(np.abs(diff_cl.values), index=C.index), 14, 1),
+    RSIV_den = _S(_mytt_SMA(_S(np.abs(diff_pl.values), index=C.index), 14, 1),
                   index=C.index)
     RSIV = RSIV_num / RSIV_den * 100
-    # ── RSIH: RSI(12) ────────────────────────────────────────
-    # RSIH := SMA(MAX(CLOSE-LC1,0),12,1) / SMA(ABS(CLOSE-LC1),12,1) * 100
-    LC1 = _REF(C, 1)
-    diff_c1 = C - LC1
-    RSIH_num = _S(_mytt_SMA(_S(np.maximum(diff_c1.values, 0), index=C.index), 12, 1),
+    # ── RSIH: RSI(12) — 基于 P1 ────────────────────────────────
+    # RSIH := SMA(MAX(P1-LP1,0),12,1) / SMA(ABS(P1-LP1),12,1) * 100
+    diff_p1 = P1_s - P1_prev
+    RSIH_num = _S(_mytt_SMA(_S(np.maximum(diff_p1.values, 0), index=C.index), 12, 1),
                   index=C.index)
-    RSIH_den = _S(_mytt_SMA(_S(np.abs(diff_c1.values), index=C.index), 12, 1),
+    RSIH_den = _S(_mytt_SMA(_S(np.abs(diff_p1.values), index=C.index), 12, 1),
                   index=C.index)
     RSIH = RSIH_num / RSIH_den * 100
 
@@ -464,13 +466,15 @@ def _fetch_data(symbol, min_daily=None, period="1d"):
     if limit is not None:
         sql = (f"SELECT * FROM ("
                f"SELECT ts, open, high, low, close FROM {table} "
-               f"WHERE symbol = '{symbol}' ORDER BY ts DESC LIMIT {limit}"
+               f"WHERE symbol = ? ORDER BY ts DESC LIMIT {limit}"
                f") sub ORDER BY ts")
+        params = (symbol,)
     else:
         sql = (f"SELECT ts, open, high, low, close FROM {table} "
-               f"WHERE symbol = '{symbol}' ORDER BY ts")
+               f"WHERE symbol = ? ORDER BY ts")
+        params = (symbol,)
+    rows = conn.execute_query(sql, params)
 
-    rows = conn.execute_query(sql)
     if not rows:
         raise ValueError(f"{table} 无 {symbol} 数据")
     df = pd.DataFrame(rows)
@@ -509,8 +513,11 @@ def mm2_calculate(symbol: str, period: str, start: str, end: str,
                   param_set_id: int = 0) -> dict:
     """MM2 信号计算（新契约）。
 
-    自动从 PostgreSQL 取日线数据，计算后返回标准信号格式。
+    自动从 PostgreSQL 取数据（支持 1m/5m/1d），计算后返回标准信号格式。
     参数通过 param_set_id 从 tb_signal_function_params 获取。
+
+    实时模式下返回全量历史信号，去重交由 SignalStore.write_signals 处理。
+    同一 bar 每一分钟 OHLC 不同时重新计算，条件满足即触发，不等待 bar 收盘。
 
     Returns:
         {'signals': [{'time': Timestamp, 'direction': 'buy'|'sell',
@@ -530,9 +537,7 @@ def mm2_calculate(symbol: str, period: str, start: str, end: str,
     df = _fetch_data(symbol, period=period)
     result = _compute(df, **typed)
 
-    start_dt = pd.Timestamp(start) if start else pd.Timestamp.min
-    end_dt   = (pd.Timestamp(end) + pd.Timedelta(days=1)) if end else pd.Timestamp.max
-    signals  = []
+    signals = []
 
     buy       = result.get("buy")
     sell      = result.get("sell")
@@ -543,8 +548,6 @@ def mm2_calculate(symbol: str, period: str, start: str, end: str,
 
     if buy is not None and hasattr(buy, "index"):
         for idx_val in buy.index:
-            if idx_val < start_dt or idx_val >= end_dt:
-                continue
             if buy.at[idx_val]:
                 label = buy_label.at[idx_val] if buy_label is not None else "买点"
                 price = (float(close.at[idx_val])
@@ -602,7 +605,8 @@ def MM2(symbol=None, *, period="1d", start="", end="", param_set_id=0, **_kw):
     try:
         result = mm2_calculate(symbol, period, start, end, param_set_id)
         signals = result.get("signals", [])
-    except Exception:
+    except Exception as e:
+        log.warning("MM2(%s) 计算失败: %s", symbol, e)
         signals = []
 
     buy_status  = ""

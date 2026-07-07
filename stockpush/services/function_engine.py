@@ -48,8 +48,8 @@ class FunctionEngine:
         - 调用 registry.get_enabled() 获取函数列表
         - 对每个函数调用 symbols_getter() 获取标的列表
         - 对每个标的调用 registry.execute()
-        - 有信号时调用 store.write_signals() + pusher.push_signal()
-        - 错误捕获和日志
+        - 有信号时调用 store.write_signals() 归档
+        - 每个函数的所有信号收集完毕后批量推送
         """
         functions = self._registry.get_enabled()
         if not functions:
@@ -66,6 +66,8 @@ class FunctionEngine:
                 "Running function: %s (period=%s, param_set_id=%d)",
                 func_info.name, func_info.period, func_info.param_set_id,
             )
+            batch_signals = []  # 收集本函数所有新信号 (符号/名称/周期需外部补)
+
             for symbol in symbols:
                 try:
                     result = self._registry.execute(
@@ -98,34 +100,23 @@ class FunctionEngine:
                     )
                     new_signals = []
 
-                # 推送 — 只推新写入的信号（已去重）; push_enabled=False 时跳过
-                if not func_info.push_enabled:
-                    continue
+                # 补充外部字段，收集到批量列表
                 for sig in new_signals:
-                    try:
-                        raw_time = sig.get("time")
-                        if hasattr(raw_time, "strftime"):
-                            time_str = raw_time.strftime("%Y-%m-%d %H:%M:%S")
-                        else:
-                            time_str = str(raw_time)
+                    sig["symbol"] = symbol
+                    sig["name"] = func_info.display_name
+                    sig["period"] = func_info.period
+                    batch_signals.append(sig)
 
-                        self._pusher.push_signal(
-                            symbol=symbol,
-                            name=func_info.display_name,
-                            signal_type=sig["direction"],
-                            time_str=time_str,
-                            period=func_info.period,
-                            open_price=sig.get("open_price", 0.0),
-                            indicator=sig.get("indicator", ""),
-                            buy_status=sig.get("buy_status", ""),
-                            sell_status=sig.get("sell_status", ""),
-                        )
-                    except Exception:
-                        logger.exception(
-                            "Failed to push signal for %s %s",
-                            func_info.name, symbol,
-                        )
-
+            # 批量推送本函数的所有信号
+            if batch_signals and func_info.push_enabled:
+                try:
+                    self._pusher.push_signal_batch(
+                        batch_signals, func_name=func_info.display_name,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to push signal batch for %s", func_info.name,
+                    )
     def backtest(
         self,
         func_name: str,

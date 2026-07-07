@@ -48,11 +48,10 @@ class SrcMgrService:
     def _init_providers_fallback(self):
         """备用初始化：当注册表不可用时使用硬编码"""
         try:
-            from .src_provider import BaostockProvider, ByapiProvider
-            self._providers['baostock'] = BaostockProvider()
+            from .src_provider import ByapiProvider
             self._providers['byapi'] = ByapiProvider()
         except Exception as e:
-            self.logger.warning(f"备用初始化部分失败: {e}")
+            self.logger.warning(f"Byapi Provider 加载失败: {e}")
         try:
             from .xtick_provider import XTickProvider
             self._providers['xtick'] = XTickProvider()
@@ -71,7 +70,7 @@ class SrcMgrService:
         获取数据源状态
         
         Args:
-            provider: 数据源名称 'baostock'
+            provider: 数据源名称 'byapi' / 'xtick'
         
         Returns:
             Dict 或 None: 状态信息

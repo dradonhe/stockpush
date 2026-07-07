@@ -75,6 +75,49 @@ class FeishuPusher:
                 return {"success": False, "message": f"推送异常: {str(e)}"}
         return {"success": False, "message": "推送失败: 超出最大重试次数"}
 
+    def push_card(self, card: dict) -> Dict[str, Any]:
+        """推送交互式卡片消息"""
+        if not self.enabled or not self.webhook_url:
+            logger.warning("Push skipped: enabled=%s, webhook=%s", self.enabled, bool(self.webhook_url))
+            return {"success": False, "message": "飞书未启用或未配置 Webhook"}
+        
+        payload = {"msg_type": "interactive", "card": card}
+        if self.sign_enabled and self.sign_secret:
+            ts = int(time_module.time())
+            string_to_sign = f"{ts}\n{self.sign_secret}"
+            sign = base64.b64encode(
+                hmac.new(string_to_sign.encode("utf-8"), digestmod=hashlib.sha256).digest()
+            ).decode()
+            payload["timestamp"] = str(ts)
+            payload["sign"] = sign
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(self.webhook_url, json=payload,
+                                         headers={"Content-Type": "application/json"}, timeout=10)
+                result = response.json()
+                if result.get("code") == 0 and response.status_code == 200:
+                    logger.info("Card push success")
+                    return {"success": True, "message": "推送成功"}
+                code = result.get("code")
+                msg = result.get("msg", "Unknown error")
+                if code == 11232 and attempt < max_retries - 1:
+                    wait = 2 ** attempt
+                    logger.warning("Push rate limited (code=%s), retrying in %ds (attempt %d/%d)...",
+                                   code, wait, attempt + 1, max_retries)
+                    time_module.sleep(wait)
+                    continue
+                logger.warning("Card push failed: code=%s msg=%s", code, msg)
+                return {"success": False, "message": f"推送失败: {msg}"}
+            except requests.exceptions.Timeout:
+                logger.warning("Card push timeout: webhook=%s", self.webhook_url[:40])
+                return {"success": False, "message": "推送超时"}
+            except requests.exceptions.RequestException as e:
+                logger.error("Card push error: %s", e)
+                return {"success": False, "message": f"推送异常: {str(e)}"}
+        return {"success": False, "message": "推送失败: 超出最大重试次数"}
+
     def push_signal(self, symbol: str, name: str, signal_type: str,
                     time_str: str, period: str, indicator: str,
                     source: str = "xtick",
@@ -92,6 +135,43 @@ class FeishuPusher:
 时间: {time_str}
 周期: {period}{open_line}{status_line}触发条件: {indicator}
 数据源: {source}"""
+        return self.push(message)
+
+    def push_signal_batch(self, signals: list, func_name: str = "") -> Dict[str, Any]:
+        """批量推送信号表格。signals: [{symbol, name, direction, time_str, period,
+        indicator, open_price, buy_status, sell_status}, ...]"""
+        if not signals:
+            return {"success": True, "message": "无信号"}
+
+        lines = [f"[F5.1 信号] {func_name}" if func_name else "[F5.1 信号]", ""]
+
+        for s in signals:
+            symbol = s.get("symbol", "")
+            name = s.get("name", "")
+            direction = s.get("direction", "")
+            raw_time = s.get("time") or s.get("time_str", "")
+            if hasattr(raw_time, "strftime"):
+                time_str = raw_time.strftime("%H:%M")
+            else:
+                time_str = str(raw_time)
+            period = s.get("period", "")
+            indicator = s.get("indicator", "")
+            open_price = s.get("open_price", 0.0)
+
+            # 只取 HH:MM
+            if " " in time_str:
+                time_short = time_str.split(" ")[1][:5]
+            elif len(time_str) == 5 and ":" in time_str:
+                time_short = time_str
+            else:
+                time_short = time_str[:5]
+
+            dir_text = "买" if direction == "buy" else "卖"
+            open_str = f"{open_price:.2f}" if open_price else ""
+
+            lines.append(f"{symbol} {name} | {period} | {dir_text} | {time_short} | {indicator} | {open_str}")
+
+        message = "\n".join(lines)
         return self.push(message)
 
     def push_dividend_notice(self, symbol: str, name: str) -> Dict[str, Any]:
@@ -142,7 +222,7 @@ class FeishuPusher:
         """推送数据补全结果通知"""
         lines = ["[F5.1 实时监控]", "数据完整性检查完成"]
         for symbol, period, ok, cnt, src in results:
-            icon = "\xe2\x9c\x85" if ok else "\xe2\x9a\xa0"
+            icon = "✅" if ok else "⚠️"
             detail = f"({cnt}条, {src})" if ok else "缺失, 已补全"
             lines.append(f"{symbol} {period}: {icon} {detail}")
         return self.push("\n".join(lines))
@@ -169,6 +249,5 @@ def get_pusher() -> FeishuPusher:
 def init_pusher(webhook_url: str, enabled: bool = True,
                 sign_secret: Optional[str] = None, sign_enabled: bool = False) -> FeishuPusher:
     global _pusher_instance
-    _pusher_instance = FeishuPusher(webhook_url=webhook_url, enabled=enabled,
-                                     sign_secret=sign_secret, sign_enabled=sign_enabled)
+    _pusher_instance = FeishuPusher(webhook_url, enabled, sign_secret, sign_enabled)
     return _pusher_instance

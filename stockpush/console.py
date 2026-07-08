@@ -75,7 +75,8 @@ class Console:
             print(entry)
 
     def _save_config(self):
-        raw_secret = self.api.pusher.sign_secret if self.api.pusher else ""
+        fsp = self.api.pusher.feishu if self.api.pusher else None
+        raw_secret = fsp.sign_secret if fsp else ""
         enc_secret = ""
         if raw_secret:
             try:
@@ -83,7 +84,7 @@ class Console:
                 enc_secret = encrypt_value(raw_secret)
             except Exception:
                 enc_secret = raw_secret
-        raw_webhook = self.api.pusher.webhook_url if self.api.pusher else ""
+        raw_webhook = fsp.webhook_url if fsp else ""
         enc_webhook = ""
         if raw_webhook:
             try:
@@ -91,10 +92,32 @@ class Console:
                 enc_webhook = encrypt_value(raw_webhook)
             except Exception:
                 enc_webhook = raw_webhook
+
+        tsp = self.api.pusher.telegram if self.api.pusher else None
+        raw_token = tsp.bot_token if tsp else ""
+        enc_token = ""
+        if raw_token:
+            try:
+                from stockpush.credential_store import encrypt_value
+                enc_token = encrypt_value(raw_token)
+            except Exception:
+                enc_token = raw_token
+        raw_chat = tsp.chat_id if tsp else ""
+        enc_chat = ""
+        if raw_chat:
+            try:
+                from stockpush.credential_store import encrypt_value
+                enc_chat = encrypt_value(raw_chat)
+            except Exception:
+                enc_chat = raw_chat
+
         cfg = dict(self.config)  # preserve all existing keys
         cfg.update({
-            "feishu": {"webhook": enc_webhook, "enabled": self.api.pusher.enabled,
-                        "sign_secret": enc_secret, "sign_enabled": self.api.pusher.sign_enabled} if self.api.pusher else {},
+            "feishu": {"webhook": enc_webhook, "enabled": fsp.enabled,
+                        "sign_secret": enc_secret, "sign_enabled": fsp.sign_enabled} if fsp else {},
+            "telegram": {"bot_token": enc_token, "chat_id": enc_chat,
+                         "enabled": tsp.enabled} if tsp else {},
+            "push_method": self.api.pusher.method if self.api.pusher else "feishu",
             "datasources": {"primary": self.api.fetcher.primary} if self.api.fetcher else {},
             "schedule": {
                 "morning_start": self.api.scheduler.morning_start,
@@ -273,12 +296,15 @@ class Console:
         while True:
             self._print_header("工具")
             print("  5.1 测试飞书推送")
-            print("  5.2 实时日志")
+            print("  5.2 测试 Telegram 推送")
+            print("  5.3 选择推送方式")
+            print("  5.4 实时日志")
             print("  0. 返回上级")
             with self._silent():
                 c = self._input("\n请输入选项: ")
             if c == "0": break
-            {"5.1": self._feishu_test, "5.2": self._live_logs}.get(c, lambda: None)()
+            {"5.1": self._feishu_test, "5.2": self._telegram_test,
+             "5.3": self._cfg_push_method, "5.4": self._live_logs}.get(c, lambda: None)()
 
     # ===== 6.x 自选股管理 =====
 
@@ -1033,47 +1059,65 @@ class Console:
         self._press_enter()
 
     def _push_mgr(self):
-        """3.6 推送管理"""
+        """推送管理"""
         while True:
             self._print_header("推送管理")
-            p = self.api.pusher
-            print(f"  推送状态: {'已启用' if p.enabled else '未启用'}")
-            print(f"  Webhook:  {'已配置' if p.webhook_url else '未配置'}")
-            print(f"  签名校验: {'开' if p.sign_enabled else '关'}")
+            pm = self.api.pusher
+            fsp = pm.feishu
+            tsp = pm.telegram
+            name_map = {"feishu": "飞书", "telegram": "Telegram", "both": "飞书 + Telegram"}
+            print(f"  推送方式: {name_map.get(pm.method, pm.method)}")
             print()
-            print("  1. 启用/禁用推送")
-            print("  2. 测试推送")
+            print(f"  ── 飞书 ──")
+            print(f"  启用: {'是' if fsp.enabled else '否'}")
+            print(f"  Webhook:  {'已配置' if fsp.webhook_url else '未配置'}")
+            print(f"  签名校验: {'开' if fsp.sign_enabled else '关'}")
+            print()
+            print(f"  ── Telegram ──")
+            print(f"  启用: {'是' if tsp.enabled else '否'}")
+            print(f"  Bot Token: {'已配置' if tsp.bot_token else '未配置'}")
+            print(f"  Chat ID:   {'已配置' if tsp.chat_id else '未配置'}")
+            print()
+            print("  1. 选择推送方式")
+            print("  2. 配置飞书推送")
+            print("  3. 配置 Telegram 推送")
+            print("  4. 测试飞书推送")
+            print("  5. 测试 Telegram 推送")
             print("  0. 返回上级")
             with self._silent():
                 c = self._input("\n请输入选项: ")
             if c == "0":
                 break
             elif c == "1":
-                p.enabled = not p.enabled
-                print(f"推送已{'启用' if p.enabled else '禁用'}")
-                self._save_config()
-                self._press_enter()
+                self._cfg_push_method()
             elif c == "2":
+                self._cfg_feishu()
+            elif c == "3":
+                self._cfg_telegram()
+            elif c == "4":
                 self._feishu_test()
+            elif c == "5":
+                self._telegram_test()
 
     def _cfg_feishu(self):
         self._print_header("配置飞书推送")
-        print(f"  Webhook: {'已配置' if self.api.pusher.webhook_url else '未配置'}")
-        print(f"  启用: {'是' if self.api.pusher.enabled else '否'}")
-        print(f"  签名校验: {'开' if self.api.pusher.sign_enabled else '关'}")
+        fsp = self.api.pusher.feishu
+        print(f"  Webhook: {'已配置' if fsp.webhook_url else '未配置'}")
+        print(f"  启用: {'是' if fsp.enabled else '否'}")
+        print(f"  签名校验: {'开' if fsp.sign_enabled else '关'}")
         print()
-        url = self._input(f"Webhook URL (回车=不变): ", self.api.pusher.webhook_url or "")
-        enabled = self._input("启用推送 (y/n): ", "y" if self.api.pusher.enabled else "n").lower() == "y"
-        sign_on = self._input("签名校验 (y/n): ", "y" if self.api.pusher.sign_enabled else "n").lower() == "y"
+        url = self._input(f"Webhook URL (回车=不变): ", fsp.webhook_url or "")
+        enabled = self._input("启用推送 (y/n): ", "y" if fsp.enabled else "n").lower() == "y"
+        sign_on = self._input("签名校验 (y/n): ", "y" if fsp.sign_enabled else "n").lower() == "y"
         secret = ""
         if sign_on:
             secret = self._input("签名秘钥: ", "")
-        self.api.pusher.set_config(url, enabled, secret if secret else self.api.pusher.sign_secret, sign_on)
+        fsp.set_config(url, enabled, secret if secret else fsp.sign_secret, sign_on)
         self._save_config()
         print("\n已保存。")
         if enabled and url:
             try:
-                result = self.api.pusher.test()
+                result = fsp.test()
                 print(f"测试推送: {'成功' if result['success'] else '失败'} - {result['message']}")
             except Exception as e:
                 print(f"测试推送失败: {e}")
@@ -1252,13 +1296,66 @@ class Console:
 
     def _feishu_test(self):
         self._print_header("测试飞书推送")
-        if not self.api.pusher.webhook_url:
+        fsp = self.api.pusher.feishu
+        if not fsp.webhook_url:
             print("飞书 Webhook 未配置。")
             self._press_enter()
             return
         print("发送测试消息...")
-        result = self.api.pusher.test()
+        result = fsp.test()
         print(f"结果: {'成功' if result['success'] else '失败'} - {result['message']}")
+        self._press_enter()
+
+    def _cfg_telegram(self):
+        self._print_header("配置 Telegram 推送")
+        tsp = self.api.pusher.telegram
+        print(f"  Bot Token: {'已配置' if tsp.bot_token else '未配置'}")
+        print(f"  Chat ID:   {'已配置' if tsp.chat_id else '未配置'}")
+        print(f"  启用: {'是' if tsp.enabled else '否'}")
+        print()
+        token = self._input(f"Bot Token (回车=不变): ", tsp.bot_token or "")
+        chat_id = self._input(f"Chat ID (回车=不变): ", tsp.chat_id or "")
+        enabled = self._input("启用推送 (y/n): ", "y" if tsp.enabled else "n").lower() == "y"
+        tsp.set_config(token, chat_id, enabled)
+        self._save_config()
+        print("\n已保存。")
+        if enabled and token and chat_id:
+            try:
+                result = tsp.test()
+                print(f"测试推送: {'成功' if result['success'] else '失败'} - {result['message']}")
+            except Exception as e:
+                print(f"测试推送失败: {e}")
+        self._press_enter()
+
+    def _telegram_test(self):
+        self._print_header("测试 Telegram 推送")
+        tsp = self.api.pusher.telegram
+        if not tsp.configured:
+            print("Telegram Bot Token 或 Chat ID 未配置。")
+            self._press_enter()
+            return
+        print("发送测试消息...")
+        result = tsp.test()
+        print(f"结果: {'成功' if result['success'] else '失败'} - {result['message']}")
+        self._press_enter()
+
+    def _cfg_push_method(self):
+        self._print_header("选择推送方式")
+        pm = self.api.pusher
+        name_map = {"feishu": "飞书", "telegram": "Telegram", "both": "飞书 + Telegram"}
+        print(f"  当前: {name_map.get(pm.method, pm.method)}")
+        print()
+        print("  1. 仅飞书")
+        print("  2. 仅 Telegram")
+        print("  3. 飞书 + Telegram (同时推送)")
+        print("  0. 返回")
+        with self._silent():
+            c = self._input("\n请选择: ")
+        method_map = {"1": "feishu", "2": "telegram", "3": "both"}
+        if c in method_map:
+            pm.method = method_map[c]
+            self._save_config()
+            print(f"推送方式已切换为: {name_map[pm.method]}")
         self._press_enter()
 
     def _cfg_register_systemd(self):

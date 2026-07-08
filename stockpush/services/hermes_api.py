@@ -17,6 +17,8 @@ def _has_systemctl() -> bool:
 
 import yaml
 from stockpush.services.feishu_pusher import FeishuPusher
+from stockpush.services.telegram_pusher import TelegramPusher
+from stockpush.services.push_manager import PushManager
 from stockpush.services.data_fetcher import DataFetcher
 from stockpush.services.calendar_checker import CalendarChecker
 from stockpush.services.pool_watcher import PoolWatcher
@@ -56,12 +58,37 @@ class HermesAPI:
                 sign_secret = decrypt_value(raw_secret)
             except Exception:
                 sign_secret = raw_secret
-        self.pusher = FeishuPusher(
+        feishu_pusher = FeishuPusher(
             webhook_url,
             feishu.get("enabled", False),
             sign_secret,
             feishu.get("sign_enabled", False),
         )
+
+        telegram = self.config.get("telegram", {})
+        raw_token = telegram.get("bot_token", "")
+        raw_chat = telegram.get("chat_id", "")
+        bot_token = ""
+        if raw_token:
+            try:
+                from stockpush.credential_store import decrypt_value
+                bot_token = decrypt_value(raw_token)
+            except Exception:
+                bot_token = raw_token
+        chat_id = ""
+        if raw_chat:
+            try:
+                from stockpush.credential_store import decrypt_value
+                chat_id = decrypt_value(raw_chat)
+            except Exception:
+                chat_id = raw_chat
+        telegram_pusher = TelegramPusher(
+            bot_token, chat_id,
+            telegram.get("enabled", False),
+        )
+
+        push_method = self.config.get("push_method", "feishu")
+        self.pusher = PushManager(feishu_pusher, telegram_pusher, push_method)
 
         ds = self.config.get("datasources", {})
         self.fetcher = DataFetcher(ds.get("primary", "xtick"))
@@ -246,10 +273,16 @@ class HermesAPI:
                 "next_run": nxt.strftime("%Y-%m-%d %H:%M:%S") if nxt else None,
             },
             "feishu": {
-                "enabled": self.pusher.enabled,
-                "sign_enabled": self.pusher.sign_enabled,
-                "webhook_configured": bool(self.pusher.webhook_url),
+                "enabled": self.pusher.feishu.enabled,
+                "sign_enabled": self.pusher.feishu.sign_enabled,
+                "webhook_configured": bool(self.pusher.feishu.webhook_url),
             },
+            "telegram": {
+                "enabled": self.pusher.telegram.enabled,
+                "bot_token_configured": bool(self.pusher.telegram.bot_token),
+                "chat_id_configured": bool(self.pusher.telegram.chat_id),
+            },
+            "push_method": self.pusher.method,
             "datasource": {
                 "primary": self.fetcher.primary,
             },
@@ -874,10 +907,16 @@ class HermesAPI:
                 "interval_seconds": self.scheduler.interval_seconds,
             },
             "feishu": {
-                "enabled": self.pusher.enabled,
-                "sign_enabled": self.pusher.sign_enabled,
-                "webhook_configured": bool(self.pusher.webhook_url),
+                "enabled": self.pusher.feishu.enabled,
+                "sign_enabled": self.pusher.feishu.sign_enabled,
+                "webhook_configured": bool(self.pusher.feishu.webhook_url),
             },
+            "telegram": {
+                "enabled": self.pusher.telegram.enabled,
+                "bot_token_configured": bool(self.pusher.telegram.bot_token),
+                "chat_id_configured": bool(self.pusher.telegram.chat_id),
+            },
+            "push_method": self.pusher.method,
             "signal": {
                 "function_count": len(self.registry.get_all()),
                 "enabled_count": len(self.registry.get_enabled()),
@@ -886,14 +925,36 @@ class HermesAPI:
 
     def feishu_test(self) -> dict:
         """Send a test message to Feishu."""
-        if not self.pusher.webhook_url:
+        if not self.pusher.feishu.webhook_url:
             return self._fail("飞书 Webhook 未配置")
-        result = self.pusher.test()
+        result = self.pusher.feishu.test()
         return (
             self._ok({"push_result": result}, "测试推送成功")
             if result.get("success")
             else self._fail(f"测试推送失败: {result.get('message', '')}")
         )
+
+    def telegram_test(self) -> dict:
+        """Send a test message to Telegram."""
+        if not self.pusher.telegram.configured:
+            return self._fail("Telegram Bot Token 或 Chat ID 未配置")
+        result = self.pusher.telegram.test()
+        return (
+            self._ok({"push_result": result}, "测试推送成功")
+            if result.get("success")
+            else self._fail(f"测试推送失败: {result.get('message', '')}")
+        )
+
+    def push_method_set(self, method: str) -> dict:
+        """Set push method: feishu / telegram / both."""
+        from stockpush.services.push_manager import VALID_METHODS
+        if method not in VALID_METHODS:
+            return self._fail(f"无效的推送方式: {method}，可选: {', '.join(VALID_METHODS)}")
+        self.pusher.method = method
+        self.config["push_method"] = method
+        self._save_config()
+        name_map = {"feishu": "飞书", "telegram": "Telegram", "both": "飞书 + Telegram"}
+        return self._ok({"push_method": method}, f"推送方式已切换为: {name_map.get(method, method)}")
 
     # ── Feishu Push ─────────────────────────────────────────
 
@@ -949,7 +1010,7 @@ class HermesAPI:
         )
 
     def push_menu(self) -> dict:
-        """Push full menu card to Feishu."""
+        """Push full menu card to Feishu/Telegram."""
         msg = (
             "[F5.1 远程控制] 操作菜单\n"
             "─────────────────\n"
@@ -965,6 +1026,7 @@ class HermesAPI:
             "  6.3 查看列表\n\n"
             "⚙ 配置 & 工具\n"
             "  3.1 查看配置    5.1 测试飞书\n"
+            "  5.2 测试Telegram 5.3 切换推送方式\n"
             "─────────────────\n"
             "💡 直接说:\n"
             '  "查看状态" / "启动监控"\n'

@@ -117,6 +117,8 @@ def _run_headless_mode(config: dict):
     )
 
     from stockpush.services.feishu_pusher import FeishuPusher
+    from stockpush.services.telegram_pusher import TelegramPusher
+    from stockpush.services.push_manager import PushManager
     from stockpush.services.data_fetcher import DataFetcher
     from stockpush.services.calendar_checker import CalendarChecker
     from stockpush.services.scheduler import RealtimeScheduler
@@ -139,10 +141,35 @@ def _run_headless_mode(config: dict):
             webhook_url = decrypt_value(raw_webhook)
         except Exception:
             webhook_url = raw_webhook
-    pusher = FeishuPusher(
+    feishu_pusher = FeishuPusher(
         webhook_url, feishu_cfg.get("enabled", False),
         sign_secret, feishu_cfg.get("sign_enabled", False)
     )
+
+    telegram_cfg = config.get("telegram", {})
+    raw_token = telegram_cfg.get("bot_token", "")
+    raw_chat = telegram_cfg.get("chat_id", "")
+    bot_token = ""
+    if raw_token:
+        try:
+            from stockpush.credential_store import decrypt_value
+            bot_token = decrypt_value(raw_token)
+        except Exception:
+            bot_token = raw_token
+    chat_id = ""
+    if raw_chat:
+        try:
+            from stockpush.credential_store import decrypt_value
+            chat_id = decrypt_value(raw_chat)
+        except Exception:
+            chat_id = raw_chat
+    telegram_pusher = TelegramPusher(
+        bot_token, chat_id,
+        telegram_cfg.get("enabled", False),
+    )
+
+    push_method = config.get("push_method", "feishu")
+    pusher = PushManager(feishu_pusher, telegram_pusher, push_method)
 
     ds = config.get("datasources", {})
     fetcher = DataFetcher(ds.get("primary", "xtick"))
@@ -184,7 +211,9 @@ def _run_headless_mode(config: dict):
                 parts = func.period.split(':')
                 base = parts[0]
                 end = now.strftime("%Y-%m-%d %H:%M:%S")
-                if base == '5m':
+                if base == '1m':
+                    start = (now - timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S")
+                elif base == '5m':
                     start = (now - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
                 elif base == '30m':
                     start = (now - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")

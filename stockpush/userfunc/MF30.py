@@ -243,10 +243,12 @@ def _fetch_data(symbol, min_30m=None, min_daily=None):
     from stockpush.pg_connector import PGConnector
     conn = PGConnector()
 
-    sql = f"SELECT ts, open, high, low, close FROM tb_raw_30m WHERE symbol = '{symbol}' ORDER BY ts"
+    sql = (f"SELECT ts, open, high, low, close FROM tb_raw_30m "
+           f"WHERE symbol = ? ORDER BY ts")
+    params_30m = (symbol,)
     if min_30m is not None:
         sql = f"SELECT * FROM ({sql} DESC LIMIT {min_30m}) sub ORDER BY ts"
-    rows = conn.execute_query(sql)
+    rows = conn.execute_query(sql, params_30m)
     df = pd.DataFrame(rows)
     if df.empty:
         raise ValueError(f"tb_raw_30m 无 {symbol} 数据")
@@ -256,10 +258,12 @@ def _fetch_data(symbol, min_30m=None, min_daily=None):
     df = df.set_index('ts')
     df.index.name = None
 
-    sql_d = f"SELECT ts, open, high, low, close FROM tb_raw_1d WHERE symbol = '{symbol}' ORDER BY ts"
+    sql_d = (f"SELECT ts, open, high, low, close FROM tb_raw_1d "
+             f"WHERE symbol = ? ORDER BY ts")
+    params_1d = (symbol,)
     if min_daily is not None:
         sql_d = f"SELECT * FROM ({sql_d} DESC LIMIT {min_daily}) sub ORDER BY ts"
-    rows_d = conn.execute_query(sql_d)
+    rows_d = conn.execute_query(sql_d, params_1d)
     dfd = pd.DataFrame(rows_d)
     if dfd.empty:
         raise ValueError(f"tb_raw_1d 无 {symbol} 数据")
@@ -271,9 +275,6 @@ def _fetch_data(symbol, min_30m=None, min_daily=None):
 
     conn.close()
     return df, dfd
-
-
-# ── 公共入口 ────────────────────────────────────────────────
 
 def mf30(symbol, *,
         N1=35, N2=35, N3=35, N4=45,

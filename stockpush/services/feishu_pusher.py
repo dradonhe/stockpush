@@ -129,8 +129,7 @@ class FeishuPusher:
             status_line = f"买点类别: {buy_status}\n"
         elif signal_type == "sell" and sell_status:
             status_line = f"卖点类别: {sell_status}\n"
-        message = f"""[F5.1 实时监控]
-标的: {symbol} {name}
+        message = f"""标的: {symbol} {name}
 信号: {signal_type}
 时间: {time_str}
 周期: {period}{open_line}{status_line}触发条件: {indicator}
@@ -143,7 +142,7 @@ class FeishuPusher:
         if not signals:
             return {"success": True, "message": "无信号"}
 
-        lines = [f"[F5.1 信号] {func_name}" if func_name else "[F5.1 信号]", ""]
+        lines = []
 
         for s in signals:
             symbol = s.get("symbol", "")

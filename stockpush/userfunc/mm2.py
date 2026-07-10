@@ -450,6 +450,8 @@ def _fetch_data(symbol, min_daily=None, period="1d"):
       1m → 最多1500根 (约6个交易日, 足够 EMA(300) 稳定)
       5m → 最多1200根 (约10个交易日)
       1d → 全量拉取 (原有行为)
+
+    始终取全量数据用于指标计算，时间范围过滤在调用侧（mm2_calculate）对信号做。
     """
     from stockpush.pg_connector import PGConnector
 
@@ -537,6 +539,23 @@ def mm2_calculate(symbol: str, period: str, start: str, end: str,
     df = _fetch_data(symbol, period=period)
     result = _compute(df, **typed)
 
+    # 解析时间窗口，用于过滤信号（数据总是全量取，信号只推窗口内的）
+    start_ts = None
+    end_ts = None
+    if start:
+        try:
+            start_ts = pd.to_datetime(start)
+        except Exception:
+            pass
+    if end:
+        try:
+            end_ts = pd.to_datetime(end)
+            # 纯日期（无时间分量）→ 延伸为当天 23:59:59
+            if end_ts == end_ts.normalize() and len(str(end).strip()) <= 10:
+                end_ts = end_ts + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        except Exception:
+            pass
+
     signals = []
 
     buy       = result.get("buy")
@@ -548,6 +567,11 @@ def mm2_calculate(symbol: str, period: str, start: str, end: str,
 
     if buy is not None and hasattr(buy, "index"):
         for idx_val in buy.index:
+            # 时间窗口过滤：start <= signal.time <= end
+            if start_ts is not None and idx_val < start_ts:
+                continue
+            if end_ts is not None and idx_val > end_ts:
+                continue
             if buy.at[idx_val]:
                 label = buy_label.at[idx_val] if buy_label is not None else "买点"
                 price = (float(close.at[idx_val])

@@ -90,6 +90,20 @@ class FunctionEngine:
                         "  %s: 补运行预警完成，无触发信号", symbol,
                     )
                     continue
+                # 过滤：只保留与 end 同一天的信号，拒绝历史信号
+                try:
+                    end_date = datetime.strptime(end, "%Y-%m-%d %H:%M:%S").date()
+                    filtered = []
+                    for s in signals:
+                        t = s.get('time')
+                        if t is None:
+                            continue
+                        t_dt = t if isinstance(t, datetime) else datetime.strptime(str(t)[:19], "%Y-%m-%d %H:%M:%S")
+                        if t_dt.date() == end_date:
+                            filtered.append(s)
+                    signals = filtered
+                except Exception:
+                    logger.warning("Signal date filter failed, keeping all signals")
                 # 归档 → 返回实际新写入的信号
                 try:
                     new_signals = self._store.write_signals(func_info.id, symbol, signals)

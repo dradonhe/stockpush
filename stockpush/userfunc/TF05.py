@@ -393,11 +393,11 @@ def _fetch_data(symbol, min_5m=None, min_30m=None, min_daily=None):
     def _fetch(table, limit=None):
         sql = (
             f"SELECT ts, open, high, low, close FROM {table} "
-            f"WHERE symbol = '{symbol}' ORDER BY ts"
+            f"WHERE symbol = ? ORDER BY ts"
         )
         if limit is not None:
             sql = f"SELECT * FROM ({sql} DESC LIMIT {limit}) sub ORDER BY ts"
-        rows = conn.execute_query(sql)
+        rows = conn.execute_query(sql, (symbol,))
         if not rows:
             raise ValueError(f"{table} 无 {symbol} 数据")
         df = pd.DataFrame(rows)

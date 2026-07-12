@@ -9,6 +9,7 @@ import importlib
 from typing import Union, List, Dict, Optional, Any
 import pandas as pd
 from stockpush.pg_connector import PGConnector
+from stockpush.log_manager import LogManager
 
 
 class DataSourceRegistry:

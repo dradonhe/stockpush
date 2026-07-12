@@ -38,7 +38,6 @@ from MyTT import EMA, HHV, LLV, SMA as _mytt_SMA
 from MyTT import REF as _mytt_REF
 import logging
 log = logging.getLogger(__name__)
-from numba import njit
 
 
 # —— 底层辅助 ————————————————————————————————————————————————
@@ -106,9 +105,9 @@ def _SMA(series, n, m):
               index=series.index if hasattr(series, 'index') else None)
 
 
-@njit
-def _barslast_numba(c_arr):
-    """numba JIT: BARSLAST 核心 — 距最近一次 True 的周期数"""
+def _BARSLAST(cond):
+    """BARSLAST(cond) — 距最近一次 cond 为真的周期数"""
+    c_arr = cond.values.astype(np.bool_)
     n = len(c_arr)
     result = np.empty(n, dtype=np.float64)
     last_true = -1
@@ -119,38 +118,23 @@ def _barslast_numba(c_arr):
             result[i] = float(i - last_true)
         else:
             result[i] = np.nan
-    return result
-
-def _BARSLAST(cond):
-    """BARSLAST(cond) — 距最近一次 cond 为真的周期数 (numba 加速)"""
-    c_arr = cond.values.astype(np.bool_)
-    result = _barslast_numba(c_arr)
     return pd.Series(result, index=cond.index)
 
 
-@njit
-def _ref_var_numba(vals, ns):
-    """numba JIT: _REF_VAR 核心 — 逐元素变长回溯"""
-    n = len(vals)
-    result = np.full(n, np.nan, dtype=np.float64)
-    for i in range(n):
-        n_val = ns[i]
-        if np.isnan(n_val):
-            continue
-        j = i - int(n_val)
-        if 0 <= j < n:
-            result[i] = vals[j]
-    return result
-
 def _REF_VAR(series, n_series):
-    """REF(X, N) — N 为 Series 时逐元素变长回溯 (numba 加速)
+    """REF(X, N) — N 为 Series 时逐元素变长回溯。
 
     对每个 bar i，取 series[i - n_series[i]] 的值。
     n_series 为 NaN 或回溯越界时结果为 NaN。
+    使用 numpy fancy-indexing 向量化实现。
     """
     vals = series.values.astype(np.float64)
     ns = n_series.values.astype(np.float64)
-    result = _ref_var_numba(vals, ns)
+    n = len(vals)
+    target = np.arange(n) - ns
+    valid = ~np.isnan(ns) & (target >= 0) & (target < n)
+    result = np.full(n, np.nan)
+    result[valid] = vals[target[valid].astype(int)]
     return pd.Series(result, index=series.index)
 
 
@@ -173,6 +157,30 @@ def _COUNT(cond, n):
         return pd.Series(result, index=cond.index)
     else:
         return cond.astype(int).rolling(int(n), min_periods=1).sum().astype(float)
+
+def _channel_dir(SG, XG):
+    """返回 (CH_UP, CH_DN, CH_ZD) — 通道方向判断。
+
+    对每个 bar，比较 SG/XG 上一次跳变前与跳变时的值，
+    判断通道是扩张(ch_up)、收缩(ch_dn)还是震荡(ch_zd)。
+    每个 SG/XG 各仅调用 _REF_VAR 两次（而非之前每次比较都调用）。
+    """
+    sg_n  = _BARSLAST(SG != _REF(SG, 1))
+    sg_ref  = _REF_VAR(SG, sg_n)
+    sg_ref1 = _REF_VAR(SG, sg_n + 1)
+    sg_up = sg_ref > sg_ref1
+    sg_dn = sg_ref < sg_ref1
+
+    xg_n  = _BARSLAST(XG != _REF(XG, 1))
+    xg_ref  = _REF_VAR(XG, xg_n)
+    xg_ref1 = _REF_VAR(XG, xg_n + 1)
+    xg_up = xg_ref > xg_ref1
+    xg_dn = xg_ref < xg_ref1
+
+    ch_up = sg_up & xg_up
+    ch_dn = sg_dn & xg_dn
+    ch_zd = ~ch_up & ~ch_dn
+    return ch_up, ch_dn, ch_zd
 
 
 # —— 核心计算逻辑 (纯函数，不碰数据库) —————————————————————
@@ -258,18 +266,6 @@ def _compute(df, *,
         | ((T2 >= 80) & MC3_SELL & (MC3 > 0))
 
     # —— 七、通道方向 ——————————————————————————————————————
-    def _channel_dir(SG, XG):
-        """返回 (CH_UP, CH_DN, CH_ZD)"""
-        sg_n  = _BARSLAST(SG != _REF(SG, 1))
-        sg_up = _REF_VAR(SG, sg_n) > _REF_VAR(SG, sg_n + 1)
-        sg_dn = _REF_VAR(SG, sg_n) < _REF_VAR(SG, sg_n + 1)
-        xg_n  = _BARSLAST(XG != _REF(XG, 1))
-        xg_up = _REF_VAR(XG, xg_n) > _REF_VAR(XG, xg_n + 1)
-        xg_dn = _REF_VAR(XG, xg_n) < _REF_VAR(XG, xg_n + 1)
-        ch_up = sg_up & xg_up
-        ch_dn = sg_dn & xg_dn
-        ch_zd = ~ch_up & ~ch_dn
-        return ch_up, ch_dn, ch_zd
 
     CH1_UP, CH1_DN, CH1_ZD = _channel_dir(SG1, XG1)
     CH2_UP, CH2_DN, CH2_ZD = _channel_dir(SG2, XG2)

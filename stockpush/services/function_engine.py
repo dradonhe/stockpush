@@ -25,6 +25,7 @@ class FunctionEngine:
         store: SignalStore,
         pusher: FeishuPusher,
         symbols_getter: Callable[[], list[str]],
+        channel_states_enabled: bool = False,
     ):
         """
         Args:
@@ -32,11 +33,13 @@ class FunctionEngine:
             store: SignalStore 实例
             pusher: FeishuPusher 实例
             symbols_getter: 函数，返回 [symbol1, symbol2, ...] 列表
+            channel_states_enabled: 是否在信号中附加跨周期通道状态
         """
         self._registry = registry
         self._store = store
         self._pusher = pusher
         self._symbols_getter = symbols_getter
+        self._channel_states_enabled = channel_states_enabled
 
     @property
     def registry(self) -> FunctionRegistry:
@@ -120,6 +123,22 @@ class FunctionEngine:
                     sig["name"] = func_info.display_name
                     sig["period"] = func_info.period
                     batch_signals.append(sig)
+
+            # 附加跨周期通道状态
+            if self._channel_states_enabled and batch_signals:
+                signaled_symbols = set(s["symbol"] for s in batch_signals)
+                channel_cache = {}
+                for sym in signaled_symbols:
+                    try:
+                        from stockpush.userfunc.mm2_i5 import get_channel_state_summary
+                        channel_cache[sym] = get_channel_state_summary(sym)
+                    except Exception:
+                        logger.warning(
+                            "Failed to get channel states for %s", sym
+                        )
+                        channel_cache[sym] = "?/?/?/?/?/?/?/?"
+                for sig in batch_signals:
+                    sig["channel_states"] = channel_cache.get(sig["symbol"], "")
 
             # 批量推送本函数的所有信号
             if batch_signals and func_info.push_enabled:

@@ -167,8 +167,12 @@ class FeishuPusher:
 
             dir_text = "买" if direction == "buy" else "卖"
             open_str = f"{open_price:.2f}" if open_price else ""
+            channel_states = s.get("channel_states", "")
 
-            lines.append(f"{symbol} {name} | {period} | {dir_text} | {time_short} | {indicator} | {open_str}")
+            line = f"{symbol} {name} | {period} | {dir_text} | {time_short} | {indicator} | {open_str}"
+            if channel_states:
+                line += f"\n  通道: {channel_states}"
+            lines.append(line)
 
         message = "\n".join(lines)
         return self.push(message)

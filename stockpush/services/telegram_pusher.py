@@ -215,10 +215,12 @@ class TelegramPusher:
 
             dir_emoji = "🟢" if direction == "buy" else "🔴"
             open_str = f"{open_price:.2f}" if open_price else ""
+            channel_states = s.get("channel_states", "")
 
-            lines.append(
-                f"{dir_emoji} <code>{symbol}</code> {name} | {period} | {time_short} | {indicator} | {open_str}"
-            )
+            line = f"{dir_emoji} <code>{symbol}</code> {name} | {period} | {time_short} | {indicator} | {open_str}"
+            if channel_states:
+                line += f"\n  通道: {channel_states}"
+            lines.append(line)
 
         return self.push("\n".join(lines))
 

@@ -202,7 +202,8 @@ def _run_headless_mode(config: dict):
                 registry = FunctionRegistry()
                 store = SignalStore()
                 cache['engine'] = FunctionEngine(registry, store, pusher,
-                                                   lambda: symbols)
+                                                   lambda: symbols,
+                                                   channel_states_enabled=True)
             engine = cache['engine']
 
             from datetime import datetime, timedelta

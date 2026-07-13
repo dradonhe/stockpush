@@ -269,9 +269,9 @@ def _compute(df, *,
     CH_B2_BULL = CH2_UP | (CH2_ZD & (CH3_UP | (CH3_ZD & CH4_UP)))
     CH_B2_BEAR = CH2_DN | (CH2_ZD & (CH3_DN | (CH3_ZD & CH4_DN)))
 
-    # 顺势通道(B1B/S1B用)
-    TREND_BULL = CH1_UP | (CH1_ZD & CH2_UP)
-    TREND_BEAR = CH1_DN | (CH1_ZD & CH2_DN)
+    # 顺势通道(B1B/S1B用): 上级(mm2)多 或 (上级震 且 上2级(mm3)多)
+    TREND_BULL = CH2_UP | (CH2_ZD & CH3_UP)
+    TREND_BEAR = CH2_DN | (CH2_ZD & CH3_DN)
 
     # —— 九、通道分离锚点 ——————————————————————————————————
     # SEP1: mm1脱离mm2 (B1A/S1A/B41/S41用)
@@ -310,7 +310,7 @@ def _compute(df, *,
     _S1A = (CORE_S | RS3) & (T_SEP1S > 0) & (T_SEP1S <= 15) & S1A_FLT & (RSIH > 45)
 
     # —— 十三、B1B/S1B — 通道回踩/反弹 (无分离窗口, 顺势通道) ——
-    _B1B = CORE_B & TREND_BULL & (_LLV(L, 10) == XG1) & (RSIH < 50)
+    _B1B = CORE_B & TREND_BULL & (_LLV(L, 10) == XG1) & B1B_FLT & (RSIH < 50)
     _S1B = CORE_S & TREND_BEAR & (_HHV(H, 10) == SG1) & S1B_FLT & (RSIH > 45)
 
     # —— 十四、B41/S41 — RSI型mm1级 (踩轨+通道分离, 无冷却) ———

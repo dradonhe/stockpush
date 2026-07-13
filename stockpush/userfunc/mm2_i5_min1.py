@@ -34,7 +34,7 @@ if _project_root not in sys.path:
 
 import numpy as np
 import pandas as pd
-from MyTT import EMA, HHV, LLV, SMA as _mytt_SMA
+from MyTT import EMA, SMA as _mytt_SMA
 from MyTT import REF as _mytt_REF
 import logging
 log = logging.getLogger(__name__)
@@ -82,21 +82,15 @@ def _EMA(series, n):
 
 
 def _HHV(series, n):
-    """HHV — n > len(series) 时退化为 expanding max"""
-    if n > len(series):
-        return _S(series.expanding(min_periods=1).max(),
-                  index=series.index if hasattr(series, 'index') else None)
-    return _S(HHV(series, n),
-              index=series.index if hasattr(series, 'index') else None)
+    """HHV — n 周期内最高值，n > len 时退化为 expanding max"""
+    n = min(n, len(series))
+    return series.rolling(n, min_periods=1).max()
 
 
 def _LLV(series, n):
-    """LLV — n > len(series) 时退化为 expanding min"""
-    if n > len(series):
-        return _S(series.expanding(min_periods=1).min(),
-                  index=series.index if hasattr(series, 'index') else None)
-    return _S(LLV(series, n),
-              index=series.index if hasattr(series, 'index') else None)
+    """LLV — n 周期内最低值，n > len 时退化为 expanding min"""
+    n = min(n, len(series))
+    return series.rolling(n, min_periods=1).min()
 
 
 def _SMA(series, n, m):
@@ -106,18 +100,17 @@ def _SMA(series, n, m):
 
 
 def _BARSLAST(cond):
-    """BARSLAST(cond) — 距最近一次 cond 为真的周期数"""
+    """BARSLAST(cond) — 距最近一次 cond 为真的周期数（向量化）"""
     c_arr = cond.values.astype(np.bool_)
     n = len(c_arr)
-    result = np.empty(n, dtype=np.float64)
-    last_true = -1
-    for i in range(n):
-        if c_arr[i]:
-            last_true = i
-        if last_true >= 0:
-            result[i] = float(i - last_true)
-        else:
-            result[i] = np.nan
+    true_idx = np.where(c_arr)[0]
+    if len(true_idx) == 0:
+        return pd.Series(np.full(n, np.nan), index=cond.index)
+    # 对每个位置 i，用 searchsorted 找到 ≤ i 的最近 True
+    pos = np.arange(n)
+    last = true_idx[np.searchsorted(true_idx, pos, side='right') - 1]
+    result = pos.astype(float) - last.astype(float)
+    result[: true_idx[0]] = np.nan
     return pd.Series(result, index=cond.index)
 
 
@@ -330,14 +323,26 @@ def _compute(df, *,
     _S1B = CORE_S & TREND_BEAR & (_HHV(H, 10) == SG1) & S1B_FLT & (RSIH > 45) & CH_FILT_SELL
 
     # —— 十四、B41/S41 — RSI型mm1级 (需分离窗口, 无冷却) ———
-    _B41 = _CROSS(RSIH, TH) & ((MC1 < 0) | (MC2 < 0) | (MC3 < 0)) & CH_B1_BULL & (T_SEP1 > 0) & CH_FILT_BUY
-    _S41 = _CROSS(75, RSIH) & ((MC1 > 0) | (MC2 > 0) | (MC3 > 0)) & CH_B1_BEAR & (T_SEP1S > 0) & CH_FILT_SELL
+    _B41 = _CROSS(RSIH, TH) & ((MC1 < 0) | (MC2 < 0) | (MC3 < 0)) & CH_B1_BULL & (_LLV(L, 10) == XG1) & (XG1 > XG2) & CH_FILT_BUY
+    _S41 = _CROSS(75, RSIH) & ((MC1 > 0) | (MC2 > 0) | (MC3 > 0)) & CH_B1_BEAR & (_HHV(H, 10) == SG1) & (SG1 < SG2) & CH_FILT_SELL
     B41 = _B41
     S41 = _S41
 
-    # —— 十五、B42/S42 — RSI型mm2级 ———————————————————————
-    _B42 = _CROSS(RSIH, TH) & ((MC1 < 0) | (MC2 < 0) | (MC3 < 0)) & CH_B2_BULL & (T_SEP2 > 0) & CH_FILT_BUY
-    _S42 = _CROSS(75, RSIH) & ((MC1 > 0) | (MC2 > 0) | (MC3 > 0)) & CH_B2_BEAR & (T_SEP2S > 0) & CH_FILT_SELL
+    # —— 十四b、B41/S41 出场 — BARSLAST 对应 ——————
+    CROSS_23 = _CROSS(RSIH, TH)
+    CROSS_75 = _CROSS(75, RSIH)
+    _raw_b = ((_BARSLAST(B41) > _BARSLAST(CROSS_75))
+              & (_BARSLAST(B41) == _BARSLAST(CROSS_23)))
+    B41_EXIT = (_raw_b.fillna(False).astype(bool)
+                & ~_raw_b.fillna(False).astype(bool).shift(1).fillna(False))
+    _raw_s = ((_BARSLAST(S41) > _BARSLAST(CROSS_23))
+              & (_BARSLAST(S41) == _BARSLAST(CROSS_75)))
+    S41_EXIT = (_raw_s.fillna(False).astype(bool)
+                & ~_raw_s.fillna(False).astype(bool).shift(1).fillna(False))
+
+    # —— 十五、B42/S42 — RSI型mm2级 (踩轨+通道分离) ———————
+    _B42 = _CROSS(RSIH, TH) & ((MC1 < 0) | (MC2 < 0) | (MC3 < 0)) & CH_B2_BULL & (_LLV(L, 10) == XG2) & (XG2 > XG3) & CH_FILT_BUY
+    _S42 = _CROSS(75, RSIH) & ((MC1 > 0) | (MC2 > 0) | (MC3 > 0)) & CH_B2_BEAR & (_HHV(H, 10) == SG2) & (SG2 < SG3) & CH_FILT_SELL
 
     # —— 十六、B2/S2 — 踩轨+分离锚 ————————————————————————
     _B2 = CORE_B & (_LLV(L, 10) == XG2) & CH_B2_BULL & (T_SEP2 > 0) & (RSIH < 50) & CH_FILT_BUY
@@ -399,6 +404,7 @@ def _compute(df, *,
         "B1A": B1A, "S1A": S1A,
         "B1B": B1B, "S1B": S1B,
         "B41": B41, "S41": S41,
+        "B41_EXIT": B41_EXIT, "S41_EXIT": S41_EXIT,
         "B42": B42, "S42": S42,
         "B2":  B2,  "S2":  S2,
         # 综合
@@ -491,6 +497,29 @@ def mm2_i5_min1_from_df(df, *, MM1=30, MM2=150, MM3=750, MM4=3750, TH=23):
     """从预取 DataFrame 计算"""
     return _compute(df, MM1=MM1, MM2=MM2, MM3=MM3, MM4=MM4, TH=TH)
 
+
+def _append_exit_signals(signals, result, start_ts, end_ts, open_ser):
+    """将 B41_EXIT / S41_EXIT 出场信号追加到 signals。"""
+    for col, edir, extag in [('B41_EXIT', 'sell', 'B41-EXIT'),
+                              ('S41_EXIT', 'buy', 'S41-EXIT')]:
+        series = result.get(col)
+        if series is None:
+            continue
+        for idx_val in series[series].index:
+            if start_ts is not None and idx_val < start_ts:
+                continue
+            if end_ts is not None and idx_val > end_ts:
+                continue
+            oprice = float(open_ser.at[idx_val]) if idx_val in open_ser.index else 0.0
+            signals.append({
+                'time': idx_val,
+                'direction': edir,
+                'price': oprice,
+                'open_price': oprice,
+                'indicator': extag,
+                'buy_status': extag if edir == 'buy' else '',
+                'sell_status': extag if edir == 'sell' else '',
+            })
 
 def mm2_i5_min1_calculate(symbol: str, period: str, start: str, end: str,
                      param_set_id: int = 0) -> dict:
@@ -606,6 +635,10 @@ def mm2_i5_min1_calculate(symbol: str, period: str, start: str, end: str,
                     'buy_status': '',
                     'sell_status': s_label,
                 })
+
+    # —— 出场信号 B41_EXIT / S41_EXIT ————————————————
+    _append_exit_signals(signals, result, start_ts, end_ts, open_ser)
+    signals.sort(key=lambda s: s['time'])
 
     return {'signals': signals}
 

@@ -6,9 +6,9 @@
 {    B41/S41: RSI型mm1级 (需分离窗口)                                   }
 {    B42/S42: RSI型mm2级                                                }
 {    B2/S2:   踩轨+分离锚                                               }
-{  出场规则(双仓位):                                                   }
-{    B1B/B41/B42 → RSI跌破75出场                                        }
-{    B1A → 等第一个mm1卖点出场; B2 → 等第一个mm2卖点出场              }
+{  出场规则(BARSLAST):                                                 }
+{    B41_EXIT: BARSLAST(B41)>BARSLAST(CROSS75) AND 同轮(CROSS23对齐)    }
+{    S41_EXIT: BARSLAST(S41)>BARSLAST(CROSS23) AND 同轮(CROSS75对齐)    }
 {========================================================================}
 
 {===== 一、四通道(5倍递进) =====}
@@ -100,16 +100,23 @@ _S1A:=(CORE_S OR RS3) AND T_SEP1S>0 AND T_SEP1S<=15 AND S1A_FLT AND RSIH>45;
 _B1B:=CORE_B AND TREND_BULL AND LLV(L,10)=XG1 AND RSIH<50;
 _S1B:=CORE_S AND TREND_BEAR AND HHV(H,10)=SG1 AND S1B_FLT AND RSIH>45;
 
-{===== 十三、B41/S41 — RSI型mm1级 (需分离窗口, 无冷却) =====}
+{===== 十三、B41/S41 — RSI型mm1级 (踩轨+通道分离, 无冷却) =====}
 TH:=23; { 个股23, ETF请手动改为25 }
-_B41:=CROSS(RSIH,TH) AND (MC1<0 OR MC2<0 OR MC3<0) AND CH_B1_BULL AND T_SEP1>0;
-_S41:=CROSS(75,RSIH) AND (MC1>0 OR MC2>0 OR MC3>0) AND CH_B1_BEAR AND T_SEP1S>0;
+_B41:=CROSS(RSIH,TH) AND (MC1<0 OR MC2<0 OR MC3<0) AND CH_B1_BULL AND LLV(L,10)=XG1 AND XG1>XG2;
+_S41:=CROSS(75,RSIH) AND (MC1>0 OR MC2>0 OR MC3>0) AND CH_B1_BEAR AND HHV(H,10)=SG1 AND SG1<SG2;
 B41:=_B41;
+{===== 十四b、B41/S41 出场 — BARSLAST 对应 =====}
 S41:=_S41;
+CROSS_23:=CROSS(RSIH,TH);
+CROSS_75:=CROSS(75,RSIH);
+B41_EXIT_RAW:=BARSLAST(B41)>BARSLAST(CROSS_75) AND BARSLAST(B41)=BARSLAST(CROSS_23);
+B41_EXIT:=B41_EXIT_RAW AND REF(B41_EXIT_RAW,1)=0;
+S41_EXIT_RAW:=BARSLAST(S41)>BARSLAST(CROSS_23) AND BARSLAST(S41)=BARSLAST(CROSS_75);
+S41_EXIT:=S41_EXIT_RAW AND REF(S41_EXIT_RAW,1)=0;
 
-{===== 十四、B42/S42 — RSI型mm2级 =====}
-_B42:=CROSS(RSIH,TH) AND (MC1<0 OR MC2<0 OR MC3<0) AND CH_B2_BULL AND T_SEP2>0;
-_S42:=CROSS(75,RSIH) AND (MC1>0 OR MC2>0 OR MC3>0) AND CH_B2_BEAR AND T_SEP2S>0;
+{===== 十四、B42/S42 — RSI型mm2级 (踩轨+通道分离) =====}
+_B42:=CROSS(RSIH,TH) AND (MC1<0 OR MC2<0 OR MC3<0) AND CH_B2_BULL AND LLV(L,10)=XG2 AND XG2>XG3;
+_S42:=CROSS(75,RSIH) AND (MC1>0 OR MC2>0 OR MC3>0) AND CH_B2_BEAR AND HHV(H,10)=SG2 AND SG2<SG3;
 
 {===== 十五、B2/S2 — 踩轨+分离锚 =====}
 _B2:=CORE_B AND LLV(L,10)=XG2 AND CH_B2_BULL AND T_SEP2>0 AND RSIH<50;
@@ -133,6 +140,8 @@ DRAWTEXT(B1A,XG3*0.99,'.B1A'),COLORMAGENTA;
 DRAWTEXT(B1B,XG3*0.97,'.B1B'),COLORRED;
 { B41 RSI型mm1(黄) }
 DRAWTEXT(B41,XG3*0.95,'.B41'),COLORYELLOW;
+{ B41 EXIT(白) }
+DRAWTEXT(B41_EXIT,XG3*0.94,'.B41-EXIT'),COLORWHITE;
 { B42 RSI型mm2(粉) }
 DRAWTEXT(B42,XG3*0.93,'.B42'),COLORFF8888;
 { B2 踩轨(深粉) }
@@ -141,6 +150,8 @@ DRAWTEXT(B2,XG3*0.91,'.B2'),COLORFF8888;
 DRAWTEXT(S1A,SG3*1.01,'.S1A'),COLORCYAN;
 { S1通道反弹(绿) }
 DRAWTEXT(S1B,SG3*1.03,'.S1B'),COLORGREEN;
+{ S41 EXIT(白) }
+DRAWTEXT(S41_EXIT,SG3*1.06,'.S41-EXIT'),COLORWHITE;
 { S41 RSI型mm1(棕) }
 DRAWTEXT(S41,SG3*1.05,'.S41'),COLORBB6600;
 { S42 RSI型mm2(亮绿) }

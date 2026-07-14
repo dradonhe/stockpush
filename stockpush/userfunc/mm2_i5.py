@@ -387,6 +387,7 @@ def _compute(df, *,
         "rsih": RSIH,
         # 通道方向
         "ch1_up": CH1_UP, "ch1_dn": CH1_DN, "ch1_zd": CH1_ZD,
+        "ch2_up": CH2_UP, "ch2_dn": CH2_DN, "ch2_zd": CH2_ZD,
         "B41": B41, "S41": S41,
         "B41_EXIT": B41_EXIT, "S41_EXIT": S41_EXIT,
         "ch3_up": CH3_UP, "ch3_dn": CH3_DN, "ch3_zd": CH3_ZD,

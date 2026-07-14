@@ -686,9 +686,9 @@ def MM2_I5(symbol=None, *, period="1d", start="", end="", param_set_id=0, **_kw)
 def get_channel_state_summary(symbol: str, param_set_id: int = 0) -> str:
     """获取 symbol 在 1m/5m/30m 三个周期的通道状态汇总。
 
-    返回 8 状态字符串，格式:
-        1m_mm1/1m_mm2/5m_mm1/5m_mm2/30m_mm1/30m_mm2/30m_mm3/30m_mm4
-    例: "多/震/空/多/多/空/震/多"
+    返回 6 状态字符串，格式:
+        1m_mm1/5m_mm1/30m_mm1/30m_mm2/30m_mm3/30m_mm4
+    30m_mm2 为关键参考位（原第6位移至第4位）。
     数据不足或计算失败时对应位置返回 "?"。
     """
     from stockpush.services.function_registry import FunctionRegistry
@@ -727,22 +727,23 @@ def get_channel_state_summary(symbol: str, param_set_id: int = 0) -> str:
             else:
                 states.append("?")
 
-            # mm2
-            ch2_up = result.get("ch2_up")
-            ch2_dn = result.get("ch2_dn")
-            if ch2_up is not None and len(ch2_up) > 0:
-                idx = ch2_up.index[-1]
-                if ch2_up.at[idx]:
-                    states.append("多")
-                elif ch2_dn is not None and ch2_dn.at[idx]:
-                    states.append("空")
-                else:
-                    states.append("震")
-            else:
-                states.append("?")
-
-            # mm3, mm4 仅 30m
+            # mm2, mm3, mm4 仅 30m
             if period == "30m":
+                # mm2
+                ch2_up = result.get("ch2_up")
+                ch2_dn = result.get("ch2_dn")
+                if ch2_up is not None and len(ch2_up) > 0:
+                    idx = ch2_up.index[-1]
+                    if ch2_up.at[idx]:
+                        states.append("多")
+                    elif ch2_dn is not None and ch2_dn.at[idx]:
+                        states.append("空")
+                    else:
+                        states.append("震")
+                else:
+                    states.append("?")
+
+                # mm3, mm4
                 for ch_key in ["ch3", "ch4"]:
                     ch_up = result.get(f"{ch_key}_up")
                     ch_dn = result.get(f"{ch_key}_dn")
@@ -758,7 +759,7 @@ def get_channel_state_summary(symbol: str, param_set_id: int = 0) -> str:
                         states.append("?")
         except Exception:
             # 此周期计算失败，填充 ?
-            fill_count = 4 if period == "30m" else 2
+            fill_count = 4 if period == "30m" else 1
             states.extend(["?"] * fill_count)
 
     return "/".join(states)

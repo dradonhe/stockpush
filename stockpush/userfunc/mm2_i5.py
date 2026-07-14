@@ -177,18 +177,25 @@ def _channel_dir(SG, XG):
 
 def _compute(df, *,
              MM1=30, MM2=150, MM3=750, MM4=3750,
-             TH=23):
+             TH=23, period="1d"):
     """
     MM2 I5 核心计算。接收日线 DataFrame，返回信号 dict。
 
     参数:
-        df:   日线 DataFrame，columns = [open, high, low, close]
-        MM1:  短通道周期 (默认 30)
-        MM2:  中通道周期 (默认 150)
-        MM3:  长通道周期 (默认 750)
-        MM4:  超长通道周期 (默认 3750)
-        TH:   RSI 买入阈值 (默认 23, ETF 请用 25)
+        df:     日线 DataFrame，columns = [open, high, low, close]
+        MM1:    短通道周期 (默认 30)
+        MM2:    中通道周期 (默认 150)
+        MM3:    长通道周期 (默认 750)
+        MM4:    超长通道周期 (默认 3750)
+        TH:     RSI 买入阈值 (默认 23, ETF 请用 25)
+        period: K线周期 ("1m"/"5m"/"30m"/"1d")，30m 时 B41/S41/B42/S42
+                的 RSI 阈值改用 30/70
     """
+    # —— RSI 型信号(B41/S41/B42/S42)阈值: 30M 周期用 30/70, 其余用 TH/75 ——
+    if str(period).lower() in ('30m', '30'):
+        TH_LO, TH_HI = 30.0, 70.0
+    else:
+        TH_LO, TH_HI = TH, 75
     H = df['high']
     L = df['low']
     O = df['open']
@@ -314,14 +321,14 @@ def _compute(df, *,
     _S1B = CORE_S & TREND_BEAR & (_HHV(H, 10) == SG1) & S1B_FLT & (RSIH > 45)
 
     # —— 十四、B41/S41 — RSI型mm1级 (踩轨+通道分离, 无冷却) ———
-    _B41 = _CROSS(RSIH, TH) & ((MC1 < 0) | (MC2 < 0) | (MC3 < 0)) & CH_B1_BULL & (_LLV(L, 10) == XG1) & (XG1 > XG2)
-    _S41 = _CROSS(75, RSIH) & ((MC1 > 0) | (MC2 > 0) | (MC3 > 0)) & CH_B1_BEAR & (_HHV(H, 10) == SG1) & (SG1 < SG2)
+    _B41 = _CROSS(RSIH, TH_LO) & ((MC1 < 0) | (MC2 < 0) | (MC3 < 0)) & CH_B1_BULL & (_LLV(L, 10) == XG1) & (XG1 > XG2)
+    _S41 = _CROSS(TH_HI, RSIH) & ((MC1 > 0) | (MC2 > 0) | (MC3 > 0)) & CH_B1_BEAR & (_HHV(H, 10) == SG1) & (SG1 < SG2)
     B41 = _B41
     S41 = _S41
 
     # —— 十四b、B41/S41 出场 — BARSLAST 对应 ——————
-    CROSS_23 = _CROSS(RSIH, TH)
-    CROSS_75 = _CROSS(75, RSIH)
+    CROSS_23 = _CROSS(RSIH, TH_LO)
+    CROSS_75 = _CROSS(TH_HI, RSIH)
     _raw_b = ((_BARSLAST(B41) > _BARSLAST(CROSS_75))
               & (_BARSLAST(B41) == _BARSLAST(CROSS_23)))
     B41_EXIT = (_raw_b.fillna(False).astype(bool)
@@ -331,8 +338,8 @@ def _compute(df, *,
     S41_EXIT = (_raw_s.fillna(False).astype(bool)
                 & ~_raw_s.fillna(False).astype(bool).shift(1).fillna(False))
     S41 = _S41
-    _B42 = _CROSS(RSIH, TH) & ((MC1 < 0) | (MC2 < 0) | (MC3 < 0)) & CH_B2_BULL & (_LLV(L, 10) == XG2) & (XG2 > XG3)
-    _S42 = _CROSS(75, RSIH) & ((MC1 > 0) | (MC2 > 0) | (MC3 > 0)) & CH_B2_BEAR & (_HHV(H, 10) == SG2) & (SG2 < SG3)
+    _B42 = _CROSS(RSIH, TH_LO) & ((MC1 < 0) | (MC2 < 0) | (MC3 < 0)) & CH_B2_BULL & (_LLV(L, 10) == XG2) & (XG2 > XG3)
+    _S42 = _CROSS(TH_HI, RSIH) & ((MC1 > 0) | (MC2 > 0) | (MC3 > 0)) & CH_B2_BEAR & (_HHV(H, 10) == SG2) & (SG2 < SG3)
 
     # —— 十六、B2/S2 — 踩轨+分离锚 ————————————————————————
     _B2 = CORE_B & (_LLV(L, 10) == XG2) & CH_B2_BULL & (T_SEP2 > 0) & (RSIH < 50)
@@ -484,9 +491,9 @@ def mm2_i5(symbol, *, MM1=30, MM2=150, MM3=750, MM4=3750, TH=23, min_daily=None)
     return _compute(df, MM1=MM1, MM2=MM2, MM3=MM3, MM4=MM4, TH=TH)
 
 
-def mm2_i5_from_df(df, *, MM1=30, MM2=150, MM3=750, MM4=3750, TH=23):
+def mm2_i5_from_df(df, *, MM1=30, MM2=150, MM3=750, MM4=3750, TH=23, period="1d"):
     """从预取 DataFrame 计算"""
-    return _compute(df, MM1=MM1, MM2=MM2, MM3=MM3, MM4=MM4, TH=TH)
+    return _compute(df, MM1=MM1, MM2=MM2, MM3=MM3, MM4=MM4, TH=TH, period=period)
 
 
 def _append_exit_signals(signals, result, start_ts, end_ts, open_ser):
@@ -542,7 +549,7 @@ def mm2_i5_calculate(symbol: str, period: str, start: str, end: str,
         typed['TH'] = float(params['TH'])
 
     df = _fetch_data(symbol, period=period)
-    result = _compute(df, **typed)
+    result = _compute(df, period=period, **typed)
 
     # 解析时间窗口
     start_ts = None
@@ -711,7 +718,7 @@ def get_channel_state_summary(symbol: str, param_set_id: int = 0) -> str:
     for period in ["1m", "5m", "30m"]:
         try:
             df = _fetch_data(symbol, period=period)
-            result = _compute(df, **typed)
+            result = _compute(df, period=period, **typed)
 
             # mm1
             ch1_up = result.get("ch1_up")

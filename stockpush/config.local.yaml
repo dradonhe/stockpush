@@ -1,31 +1,31 @@
+# stockpush 本地配置 (Termux)
 custom_functions:
-  dir: /opt/stockpush/stockpush/userfunc
-  functions:
-  - desc: MF30多因子信号
-    dir: /opt/stockpush/stockpush/userfunc
-    file: MF30.py
-    func: MF30
-    name: MF30
-  - desc: 5分分钟预警
-    dir: /opt/stockpush/stockpush/userfunc
-    file: MF05.py
-    func: MF05
-    name: MF05
-  - desc: TF05双均线SID状态字节(5M)
-    dir: /opt/stockpush/stockpush/userfunc
-    file: TF05.py
-    func: TF05
-    name: TF05
+  dir: /data/data/com.termux/files/home/stockpush/stockpush/userfunc
+  functions: []
 datasources:
   primary: xtick
+postgres:
+  host: localhost
+  port: 5432
+  user: zenith_quant
+  password: zenith_quant
+  database: zenith_quant
+# 推送方式: telegram | feishu | both
+push_method: both
+# Telegram 推送配置
+telegram:
+  bot_token: "8709100499:AAHy1FWmJLk0RUh81Fyt3Q9kB0EiVne5STw"
+  chat_id: "-5290594134"
+  enabled: true
+# 飞书（双通道推送）
 feishu:
   enabled: true
-  sign_enabled: true
-  sign_secret: gAAAAABqRHWEn3txEDRci9w0StbDX-tzEIpPl7f8eH5NJ6Jerdbdgtf4sw0oK-w9lgacvv5tz4q76P-DMRlRxc8Bsnds3RFjbo31kVZNjr3mdGmqt2Vp3m8=
-  webhook: gAAAAABqRHWE763wVGgYTye00EybtfFWfiEh6eXYKY8OBLfMrpQ7JojpTP_W0RH5pxgVe4UG1ABRBoae710doCmDQYp6hVc3ybjcqBHv-2WUpwBc6P5sFifhvweVVtyJVh_ICjFLfohlEzESC4--WFVwmnDBk1qcfZCzJUu3map43Soq8Nk4upJvmwU_OW8tLNxd0GmohkPa
+  webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/7c4e6095-9772-4464-8648-c7f55591ea8c"
+  sign_enabled: false
 schedule:
   afternoon_end: '15:05'
   afternoon_start: '13:00:05'
   interval_seconds: 60
   morning_end: '11:35'
   morning_start: 09:25
+push_enabled: true

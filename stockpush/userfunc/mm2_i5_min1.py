@@ -334,11 +334,11 @@ def _compute(df, *,
     _raw_b = ((_BARSLAST(B41) > _BARSLAST(CROSS_75))
               & (_BARSLAST(B41) == _BARSLAST(CROSS_23)))
     B41_EXIT = (_raw_b.fillna(False).astype(bool)
-                & ~_raw_b.fillna(False).astype(bool).shift(1).fillna(False))
+                & ~_raw_b.fillna(False).astype(bool).shift(1).fillna(False).astype(bool))
     _raw_s = ((_BARSLAST(S41) > _BARSLAST(CROSS_23))
               & (_BARSLAST(S41) == _BARSLAST(CROSS_75)))
     S41_EXIT = (_raw_s.fillna(False).astype(bool)
-                & ~_raw_s.fillna(False).astype(bool).shift(1).fillna(False))
+                & ~_raw_s.fillna(False).astype(bool).shift(1).fillna(False).astype(bool))
 
     # —— 十五、B42/S42 — RSI型mm2级 (踩轨+通道分离) ———————
     _B42 = _CROSS(RSIH, TH) & ((MC1 < 0) | (MC2 < 0) | (MC3 < 0)) & CH_B2_BULL & (_LLV(L, 10) == XG2) & (XG2 > XG3) & CH_FILT_BUY

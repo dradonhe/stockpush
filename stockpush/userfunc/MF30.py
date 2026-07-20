@@ -414,19 +414,20 @@ def mf30_calculate(symbol: str, period: str, start: str, end: str,
 
 # ── 自定义函数系统 (4.x) 适配 ──────────────────────────────
 
-def MF30(symbol_or_df=None):
-    """自定义函数系统适配入口。兼容两种调用：
+def MF30(symbol=None, period=None, start=None, end=None, param_set_id=None, **_kw):
+    """自定义函数系统适配入口。兼容三种调用：
 
-    1) 测试 (4.4): MF30(df) — df 被忽略，自动取第一只自选股计算
-    2) 正式: MF30("601336") — 指定 symbol 计算
+    1) 引擎调用: MF30(symbol="601336", period="30m", start="...", end="...", param_set_id=0)
+    2) 测试 (4.4): MF30(df) — df 被忽略，自动取第一只自选股计算
+    3) 正式: MF30("601336") — 指定 symbol 计算
 
-    返回 {buy_point, buy_status, sell_point, sell_status}
-    buy_status/sell_status 为 "第N类买点"/"第N类卖点" 文本，无信号时为空串。
+    返回 dict: 含 signals 列表（引擎格式）+ buy_point/buy_status/sell_point/sell_status（控制台兼容）
     """
-    if isinstance(symbol_or_df, str):
-        symbol = symbol_or_df
-    else:
-        # 测试场景：取第一只自选股
+    # 处理 DataFrame 作为第一个位置参数传入（控制台测试路径）
+    if symbol is not None and not isinstance(symbol, str):
+        symbol = None
+
+    if symbol is None:
         try:
             from stockpush.pg_connector import PGConnector
             db = PGConnector()
@@ -439,21 +440,26 @@ def MF30(symbol_or_df=None):
             symbol = "601336"
 
     try:
-        result = mf30_calculate(symbol, "30m", "", "")
+        result = mf30_calculate(symbol, period or "30m", start or "", end or "", param_set_id or 0)
         signals = result.get("signals", [])
     except Exception:
-        signals = []
+        return {
+            "signals": [],
+            "buy_point": False, "buy_status": "",
+            "sell_point": False, "sell_status": "",
+        }
 
+    # 提取买卖点状态（控制台兼容）
     buy_status = ""
     sell_status = ""
     for s in signals:
-        if s["direction"] == "buy" and not buy_status:
+        if s.get("direction") == "buy" and not buy_status:
             buy_status = s.get("buy_status", "买入")
-        elif s["direction"] == "sell" and not sell_status:
+        elif s.get("direction") == "sell" and not sell_status:
             sell_status = s.get("sell_status", "卖出")
-    return {
-        "buy_point": bool(buy_status),
-        "buy_status": buy_status,
-        "sell_point": bool(sell_status),
-        "sell_status": sell_status,
-    }
+
+    result["buy_point"] = bool(buy_status)
+    result["buy_status"] = buy_status
+    result["sell_point"] = bool(sell_status)
+    result["sell_status"] = sell_status
+    return result

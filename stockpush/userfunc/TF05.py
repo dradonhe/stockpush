@@ -553,18 +553,20 @@ def tf05_calculate(symbol: str, period: str, start: str, end: str,
 
 # ── 自定义函数系统 (4.x) 适配 ──────────────────────────────
 
-def TF05(symbol_or_df=None):
-    """自定义函数系统适配入口。兼容两种调用：
+def TF05(symbol=None, period=None, start=None, end=None, param_set_id=None, **_kw):
+    """自定义函数系统适配入口。兼容三种调用：
 
-    1) 测试 (4.4): TF05(df) — df 被忽略，自动取第一只自选股计算
-    2) 正式: TF05("588200") — 指定 symbol 计算
+    1) 引擎调用: TF05(symbol="588200", period="5m", start="...", end="...", param_set_id=0)
+    2) 测试 (4.4): TF05(df) — df 被忽略，自动取第一只自选股计算
+    3) 正式: TF05("588200") — 指定 symbol 计算
 
-    返回 {buy_point, buy_status, sell_point, sell_status}
-    buy_status/sell_status 为 "第N类买点/卖点" 文本，无信号时为空串。
+    返回 dict: 含 signals 列表（引擎格式）+ buy_point/buy_status/sell_point/sell_status（控制台兼容）
     """
-    if isinstance(symbol_or_df, str):
-        symbol = symbol_or_df
-    else:
+    # 处理 DataFrame 作为第一个位置参数传入（控制台测试路径）
+    if symbol is not None and not isinstance(symbol, str):
+        symbol = None
+
+    if symbol is None:
         try:
             from stockpush.pg_connector import PGConnector
             db = PGConnector()
@@ -577,48 +579,26 @@ def TF05(symbol_or_df=None):
             symbol = "588200"
 
     try:
-        result = tf05(symbol)
-        close = result.get("close", pd.Series(dtype=float))
+        result = tf05_calculate(symbol, period or "5m", start or "", end or "", param_set_id or 0)
+        signals = result.get("signals", [])
     except Exception:
         return {
+            "signals": [],
             "buy_point": False, "buy_status": "",
             "sell_point": False, "sell_status": "",
         }
 
-    # 取最后一个有效信号
-    mabuy = result.get("mabuy", pd.Series(dtype=bool))
-    masell = result.get("masell", pd.Series(dtype=bool))
-    buy5_status = result.get("buy5_status", pd.Series(dtype=str))
-    sell5_status = result.get("sell5_status", pd.Series(dtype=str))
-    b4 = result.get("b4", pd.Series(dtype=bool))
-    s4 = result.get("s4", pd.Series(dtype=bool))
-
+    # 提取买卖点状态（控制台兼容）
     buy_status = ""
     sell_status = ""
-    if not mabuy.empty:
-        # 取最近一个买入信号
-        buy_idx = mabuy[mabuy].index
-        if len(buy_idx) > 0:
-            last_buy = buy_idx[-1]
-            # 先查是否已有分类买卖点状态
-            raw = buy5_status.at[last_buy] if buy5_status is not None and last_buy in buy5_status.index else ""
-            if raw:
-                buy_status = raw
-            elif b4.at[last_buy] if last_buy in b4.index else False:
-                buy_status = "第4类买点"
+    for s in signals:
+        if s.get("direction") == "buy" and not buy_status:
+            buy_status = s.get("buy_status", "买入")
+        elif s.get("direction") == "sell" and not sell_status:
+            sell_status = s.get("sell_status", "卖出")
 
-        sell_idx = masell[masell].index
-        if len(sell_idx) > 0:
-            last_sell = sell_idx[-1]
-            raw = sell5_status.at[last_sell] if sell5_status is not None and last_sell in sell5_status.index else ""
-            if raw:
-                sell_status = raw
-            elif s4.at[last_sell] if last_sell in s4.index else False:
-                sell_status = "第4类卖点"
-
-    return {
-        "buy_point": bool(buy_status),
-        "buy_status": buy_status,
-        "sell_point": bool(sell_status),
-        "sell_status": sell_status,
-    }
+    result["buy_point"] = bool(buy_status)
+    result["buy_status"] = buy_status
+    result["sell_point"] = bool(sell_status)
+    result["sell_status"] = sell_status
+    return result

@@ -111,18 +111,15 @@ def _REF_VAR(series, n_series):
 
     对每个 bar i，取 series[i - n_series[i]] 的值。
     n_series 为 NaN 或回溯越界时结果为 NaN。
-    使用 numpy 数组迭代，O(n) 且无 pandas iloc 开销。
+    使用 numpy fancy-indexing 向量化实现。
     """
-    vals = series.values
-    ns = n_series.values.astype(float)
-    result = np.full(len(vals), np.nan, dtype=float)
-    for i in range(len(vals)):
-        n_val = ns[i]
-        if np.isnan(n_val):
-            continue
-        j = i - int(n_val)
-        if 0 <= j < len(vals):
-            result[i] = vals[j]
+    vals = series.values.astype(np.float64)
+    ns = n_series.values.astype(np.float64)
+    n = len(vals)
+    target = np.arange(n) - ns
+    valid = ~np.isnan(ns) & (target >= 0) & (target < n)
+    result = np.full(n, np.nan)
+    result[valid] = vals[target[valid].astype(int)]
     return pd.Series(result, index=series.index)
 
 
@@ -561,29 +558,35 @@ def mm2_calculate(symbol: str, period: str, start: str, end: str,
     sell_label = result.get("sell_label")
     close     = result.get("close")
     open_ser  = result.get("open")
-
     if buy is not None and hasattr(buy, "index"):
-        for idx_val in buy.index:
+        # Buy signals: only iterate bars where buy is True
+        for idx_val in buy[buy].index:
             # 时间窗口过滤：start <= signal.time <= end
             if start_ts is not None and idx_val < start_ts:
                 continue
             if end_ts is not None and idx_val > end_ts:
                 continue
-            if buy.at[idx_val]:
-                label = buy_label.at[idx_val] if buy_label is not None else "买点"
-                price = (float(close.at[idx_val])
-                         if close is not None and idx_val in close.index else 0.0)
-                signals.append({
-                    'time': idx_val,
-                    'direction': 'buy',
-                    'price': price,
-                    'open_price': (float(open_ser.at[idx_val])
-                                   if open_ser is not None and idx_val in open_ser.index
-                                   else 0.0),
-                    'indicator': label,
-                    'buy_status': label,
-                })
-            if sell is not None and sell.at[idx_val]:
+            label = buy_label.at[idx_val] if buy_label is not None else "买点"
+            price = (float(close.at[idx_val])
+                     if close is not None and idx_val in close.index else 0.0)
+            signals.append({
+                'time': idx_val,
+                'direction': 'buy',
+                'price': price,
+                'open_price': (float(open_ser.at[idx_val])
+                               if open_ser is not None and idx_val in open_ser.index
+                               else 0.0),
+                'indicator': label,
+                'buy_status': label,
+            })
+        # Sell signals: only iterate bars where sell is True
+        if sell is not None and hasattr(sell, "index"):
+            for idx_val in sell[sell].index:
+                # 时间窗口过滤：start <= signal.time <= end
+                if start_ts is not None and idx_val < start_ts:
+                    continue
+                if end_ts is not None and idx_val > end_ts:
+                    continue
                 label = sell_label.at[idx_val] if sell_label is not None else "卖点"
                 price = (float(close.at[idx_val])
                          if close is not None and idx_val in close.index else 0.0)

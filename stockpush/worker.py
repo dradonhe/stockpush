@@ -196,21 +196,9 @@ def _run_headless_mode(config: dict):
 
             from datetime import datetime, timedelta
             now = datetime.now()
-            for func in engine.registry.get_enabled():
-                parts = func.period.split(':')
-                base = parts[0]
-                end = now.strftime("%Y-%m-%d %H:%M:%S")
-                if base == '1m':
-                    start = (now - timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S")
-                elif base == '5m':
-                    start = (now - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
-                elif base == '30m':
-                    start = (now - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
-                elif base == '1d':
-                    start = now.strftime("%Y-%m-%d") + " 09:25:00"
-                else:
-                    continue
-                engine.run(start, end)
+            end = now.strftime("%Y-%m-%d %H:%M:%S")
+            start = (now - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
+            engine.run(start, end)
         except Exception as e:
             logger.error("Signal engine run failed: %s", e)
 
@@ -259,8 +247,7 @@ def _run_headless_mode(config: dict):
             try:
                 for symbol in symbols:
                     for period in ["1m", "5m", "30m", "1d"]:
-                        _sym, _per = symbol, period
-                        def _log_cb(df):
+                        def _log_cb(df, _sym=symbol, _per=period):
                             try:
                                 from stockpush.services.download_logger import log_downloads
                                 filtered = _filter_bar(df, _per, now_dt)

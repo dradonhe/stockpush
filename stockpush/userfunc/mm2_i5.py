@@ -59,20 +59,17 @@ def _REF(series, n=1):
 
 def _CROSS(A, B):
     """CROSS(A, B) — A 上穿 B。A/B 可为标量或 Series。"""
-    if np.isscalar(A) and np.isscalar(B):
+    a_scalar = np.isscalar(A)
+    b_scalar = np.isscalar(B)
+    if a_scalar and b_scalar:
         return False
-    if np.isscalar(A):
-        A_val = A
-        A_arr = np.full(len(B), A_val) if hasattr(B, '__len__') else None
-        if A_arr is not None:
-            A = pd.Series(A_arr, index=B.index)
-    if np.isscalar(B):
-        B_val = B
-        B_arr = np.full(len(A), B_val) if hasattr(A, '__len__') else None
-        if B_arr is not None:
-            B = pd.Series(B_arr, index=A.index)
+    if a_scalar:
+        # scalar 上穿 Series: A > B[i] 且 A <= B[i-1]
+        return (A > B) & (A <= _REF(B, 1))
+    if b_scalar:
+        # Series 上穿标量: A[i] > B 且 A[i-1] <= B
+        return (A > B) & (_REF(A, 1) <= B)
     return (A > B) & (_REF(A, 1) <= _REF(B, 1))
-
 
 def _EMA(series, n):
     return _S(EMA(series, n),
@@ -575,17 +572,16 @@ def mm2_i5_calculate(symbol: str, period: str, start: str, end: str,
     open_ser  = result.get("open")
 
     if buy is not None and hasattr(buy, "index"):
-        for idx_val in buy.index:
+        # Only iterate bars with signals, not all bars
+        buy_idxs = buy[buy].index
+        sell_idxs = sell[sell].index if sell is not None else pd.Index([])
+        for idx_val in buy_idxs.union(sell_idxs):
             if start_ts is not None and idx_val < start_ts:
                 continue
             if end_ts is not None and idx_val > end_ts:
                 continue
-
-            is_buy = bool(buy.at[idx_val])
-            is_sell = bool(sell is not None and sell.at[idx_val])
-
-            if not is_buy and not is_sell:
-                continue
+            is_buy = idx_val in buy_idxs
+            is_sell = idx_val in sell_idxs
 
             price_val = (float(close.at[idx_val])
                          if close is not None and idx_val in close.index else 0.0)

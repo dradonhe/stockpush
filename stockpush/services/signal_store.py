@@ -21,11 +21,11 @@ class SignalStore:
     # ── 写入 ──
 
     def write_signals(self, func_id: int, symbol: str, signals: list[dict]) -> list[dict]:
-        """批量写入信号到 tb_signal_log。
+        """批量写入信号到 tb_signal_log，通过 ON CONFLICT 自动去重。
 
-        对每个信号执行 (func_id, symbol, direction, signal_time) 四元组去重：
-        - 已存在的跳过（返回中排除）
-        - 不存在的插入并追加到返回列表
+        所有有效信号在一条 INSERT ... ON CONFLICT DO NOTHING 中批量写入，
+        由 PostgreSQL 的 (func_id, symbol, direction, signal_time) 唯一约束处理去重。
+        通过 RETURNING 子句返回实际新插入的行，并映射回原始信号字典。
 
         Args:
             func_id: tb_signal_functions.id
@@ -35,48 +35,59 @@ class SignalStore:
         Returns:
             实际新插入的信号列表（排除重复和无效方向的），空列表表示全部已存在或无效
         """
-        inserted = []
+        # 1. 预过滤：收集有效信号
+        rows: list[tuple] = []  # (func_id, direction, symbol, time_str, price, open_price, indicator, sig_dict)
         for sig in signals:
-            # Check for duplicates (same func_id + symbol + direction + signal_time)
-            time_val = sig.get('time')
-            if hasattr(time_val, 'strftime'):
-                time_str = time_val.strftime("%Y-%m-%d %H:%M:%S")
-            else:
-                time_str = str(time_val)
-            existing = self._db.execute_query(
-                "SELECT id FROM tb_signal_log WHERE func_id = ? AND symbol = ? "
-                "AND direction = ? AND signal_time = ?::timestamp LIMIT 1",
-                (func_id, symbol, sig.get('direction'), time_str),
-            )
-            if existing:
-                continue
-            raw_time = sig.get('time')
-            if raw_time is None:
-                continue
-
             direction = sig.get('direction')
             if direction not in ('buy', 'sell'):
                 logger.warning("Skipping signal with invalid direction: %s", direction)
                 continue
-
+            raw_time = sig.get('time')
+            if raw_time is None:
+                continue
             # Normalize pd.Timestamp / datetime → ISO string
             if hasattr(raw_time, 'strftime'):
                 time_str = raw_time.strftime('%Y-%m-%d %H:%M:%S')
             else:
                 time_str = str(raw_time)
-
             price = sig.get('price')
             open_price = sig.get('open_price')
             indicator = sig.get('indicator', '')
+            rows.append((func_id, direction, symbol, time_str, price, open_price, indicator, sig))
 
-            self._db.execute_update(
-                "INSERT INTO tb_signal_log "
-                "(func_id, direction, symbol, signal_time, price, open_price, indicator) "
-                "VALUES (?, ?, ?, ?::timestamp, ?, ?, ?)",
-                (func_id, direction, symbol, time_str, price, open_price, indicator),
-            )
-            inserted.append(sig)
-        return inserted
+        if not rows:
+            return []
+
+        # 2. 构建单条多行 INSERT ... ON CONFLICT DO NOTHING RETURNING
+        n = len(rows)
+        row_placeholder = '(?, ?, ?, ?::timestamp, ?, ?, ?)'
+        placeholders = ', '.join([row_placeholder] * n)
+        sql = (
+            "INSERT INTO tb_signal_log "
+            "(func_id, direction, symbol, signal_time, price, open_price, indicator) "
+            f"VALUES {placeholders} "
+            "ON CONFLICT (func_id, symbol, direction, signal_time) DO NOTHING "
+            "RETURNING direction, signal_time::text AS signal_time"
+        )
+
+        # 3. 展平参数
+        params = []
+        for r in rows:
+            params.extend(r[:7])
+
+        # 4. 执行批量写入
+        returned = self._db.execute_query(sql, tuple(params))
+
+        # 5. 将返回行映射回原始信号字典（每个 key 只匹配第一个遇到的信号）
+        inserted_keys = {(r['direction'], r['signal_time']) for r in returned}
+        seen_keys: set[tuple[str, str]] = set()
+        result = []
+        for r in rows:
+            key = (r[1], r[3])  # (direction, time_str)
+            if key in inserted_keys and key not in seen_keys:
+                seen_keys.add(key)
+                result.append(r[7])
+        return result
 
     # ── 查询 ──
 

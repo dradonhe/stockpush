@@ -184,6 +184,10 @@ F51_TABLE_SQLS: List[str] = [
     "CREATE INDEX IF NOT EXISTS idx_signal_log_symbol ON tb_signal_log(symbol)",
     "CREATE INDEX IF NOT EXISTS idx_signal_log_time ON tb_signal_log(signal_time)",
 
+    # Unique constraint for deduplication (used by SignalStore ON CONFLICT)
+    """CREATE UNIQUE INDEX IF NOT EXISTS idx_signal_log_dedup
+       ON tb_signal_log (func_id, symbol, direction, signal_time)""",
+
     # 13. tb_download_request_log — 下载请求审计日志（由 download_logger.py 按需创建，此处也预建）
     """
     CREATE SEQUENCE IF NOT EXISTS seq_tb_download_request_log_id START 1

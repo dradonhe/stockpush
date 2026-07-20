@@ -156,6 +156,7 @@ class PGConnector:
                   file=sys.stderr)
             raise
 
+
     def execute_many(self, query: str, params_list: List[Tuple]) -> int:
         """批量执行相同的 SQL 语句"""
         self._ensure_connection()

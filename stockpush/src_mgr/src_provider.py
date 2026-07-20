@@ -4,6 +4,7 @@
 """
 import os
 import time
+from datetime import datetime
 
 
 import pandas as pd
@@ -526,6 +527,76 @@ class ByapiProvider(BaseProvider, StandardAPIAdapter):
         except Exception as e:
             self.logger.error(f"获取基金实时行情失败: {e}")
             raise
+
+    def fetch_stock_1min_realtime(self, code: str, duration_minutes: int = 5) -> pd.DataFrame:
+        """
+        通过实时接口生成1分钟K线数据
+        
+        ⚠️ 注意：byapi不提供1分钟历史数据接口，此方法用于实时采集生成临时数据
+        
+        【算法原理】
+        1. 每分钟采集一次实时接口
+        2. 与上一分钟数据对比生成K线
+        3. open = 上一分钟的close
+        4. close = 当前价格
+        5. high/low = 本分钟内最高/最低价
+        
+        【使用场景】
+        - 仅用于盘中实时监控和短期分析
+        - 不适合回测和历史数据分析
+        - 需要连续运行duration_minutes分钟才能生成完整数据
+        
+        Args:
+            code: 股票代码
+            duration_minutes: 采集时长(分钟)，默认5分钟
+        
+        Returns:
+            DataFrame: 1分钟K线数据（临时生成，非历史数据）
+        """
+        self.logger.info(f"[Byapi] 开始实时采集{code}的1分钟数据，时长{duration_minutes}分钟")
+        
+        result_data = []
+        prev_data = None
+        
+        for i in range(duration_minutes):
+            try:
+                # 获取实时数据
+                df = self.fetch_stock_realtime(code)
+                current_data = df.iloc[0].to_dict()
+                current_time = datetime.now()
+                current_price = current_data.get('close', 0)
+                
+                if prev_data is not None:
+                    # 生成1分钟K线
+                    kline = {
+                        'time': current_time.strftime('%Y-%m-%d %H:%M:00'),
+                        'open': prev_data.get('close', current_price),
+                        'close': current_price,
+                        'high': max(prev_data.get('close', current_price), current_price),
+                        'low': min(prev_data.get('close', current_price), current_price),
+                        'volume': current_data.get('volume', 0) - prev_data.get('volume', 0),
+                        'amount': current_data.get('amount', 0) - prev_data.get('amount', 0),
+                    }
+                    result_data.append(kline)
+                    self.logger.info(f"第{i+1}分钟: O={kline['open']:.2f}, C={kline['close']:.2f}, V={kline['volume']}")
+                
+                prev_data = current_data
+                
+                # 等待1分钟(最后一次不等待)
+                if i < duration_minutes - 1:
+                    time.sleep(60)
+                    
+            except Exception as e:
+                self.logger.error(f"第{i+1}分钟采集失败: {e}")
+                continue
+        
+        if not result_data:
+            raise ValueError("未采集到任何数据")
+        
+        df = pd.DataFrame(result_data)
+        self.logger.info(f"实时采集完成，共生成{len(df)}条1分钟K线")
+        return df
+
 
     # ==================== 标准实时接口（对齐DataSourceRegistry） ====================
 

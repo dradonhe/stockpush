@@ -5,6 +5,7 @@ PostgreSQL 连接器（F5.1 + SysInit 专用）
 """
 
 import os
+import sys
 import threading
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -45,7 +46,9 @@ class _QueryResult:
                 raise IndexError("no more rows")
             if isinstance(row, dict):
                 vals = list(row.values())
-                return vals[idx] if idx < len(vals) else row
+                if idx >= len(vals):
+                    raise IndexError(f"column index {idx} out of range (max {len(vals)-1})")
+                return vals[idx]
             return row
         raise TypeError(f"unexpected index type: {type(idx)}")
 
@@ -61,7 +64,6 @@ class PGConnector:
         'port': 5432,
         'dbname': 'zenith_quant',
         'user': 'zenith_quant',
-        'password': 'zenith_quant_pg',
     }
 
     @classmethod
@@ -73,15 +75,21 @@ class PGConnector:
 
     @classmethod
     def _get_config(cls) -> dict:
+        password = os.getenv('PG_PASSWORD')
+        if not password:
+            raise RuntimeError(
+                "PG_PASSWORD environment variable is not set. "
+                "Database password is required for PostgreSQL connection."
+            )
         return {
             'host': os.getenv('PG_HOST', cls._DEFAULT_CFG['host']),
             'port': cls._parse_port(os.getenv('PG_PORT', cls._DEFAULT_CFG['port'])),
             'dbname': os.getenv('PG_DB', cls._DEFAULT_CFG['dbname']),
             'user': os.getenv('PG_USER', cls._DEFAULT_CFG['user']),
-            'password': os.getenv('PG_PASSWORD', cls._DEFAULT_CFG['password']),
+            'password': password,
         }
 
-    def __init__(self, db_path: str = None):
+    def __init__(self):
         """初始化 PostgreSQL 连接"""
         self._cfg = self._get_config()
         self._lock = threading.Lock()
@@ -100,7 +108,6 @@ class PGConnector:
                 autocommit=True,
             )
         except Exception as e:
-            import sys
             print(f"[PGConnector] 连接失败: {e}", file=sys.stderr)
             raise
 
@@ -127,7 +134,7 @@ class PGConnector:
                     return []
         except Exception as e:
             print(f"[PGConnector] 查询失败: {query[:100]}... 错误: {e}",
-                  file=__import__('sys').stderr)
+                  file=sys.stderr)
             raise
 
     def execute_update(self, query: str, params: Optional[Tuple] = None) -> int:
@@ -146,7 +153,7 @@ class PGConnector:
             except Exception:
                 pass
             print(f"[PGConnector] 更新失败: {query[:100]}... 错误: {e}",
-                  file=__import__('sys').stderr)
+                  file=sys.stderr)
             raise
 
     def execute_many(self, query: str, params_list: List[Tuple]) -> int:
@@ -165,7 +172,7 @@ class PGConnector:
             except Exception:
                 pass
             print(f"[PGConnector] 批量更新失败: {query[:100]}... 错误: {e}",
-                  file=__import__('sys').stderr)
+                  file=sys.stderr)
             raise
 
     def execute(self, query: str, params: Optional[Tuple] = None):

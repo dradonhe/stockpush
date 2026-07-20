@@ -94,6 +94,24 @@ class PoolMgrService:
             }
         }
 
+    def _init_table(self) -> None:
+        """初始化 tb_stock_pool 表结构"""
+        create_sql = """
+        CREATE TABLE IF NOT EXISTS tb_stock_pool (
+            id         SERIAL PRIMARY KEY,
+            symbol     VARCHAR(10) NOT NULL,
+            name       VARCHAR(50),
+            type       VARCHAR(10),
+            market     VARCHAR(10),
+            group_name VARCHAR(50),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(symbol, group_name)
+        )
+        """
+        self.db_connector.execute_update(create_sql)
+        self.logger.info("tb_stock_pool 表初始化完成")
+
     def _normalize_group_name(self, group_name: Optional[str]) -> str:
         """规范化分组名（去除首尾空白）"""
         if group_name is None:

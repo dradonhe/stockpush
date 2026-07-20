@@ -5,15 +5,11 @@
 """
 
 import logging
-import shutil
 import subprocess
 from datetime import datetime, date
 from pathlib import Path
 from typing import Any
 
-
-def _has_systemctl() -> bool:
-    return shutil.which("systemctl") is not None
 
 import yaml
 from stockpush.services.feishu_pusher import FeishuPusher
@@ -25,6 +21,7 @@ from stockpush.services.pool_watcher import PoolWatcher
 from stockpush.services.scheduler import RealtimeScheduler
 from stockpush.services.function_registry import FunctionRegistry
 from stockpush.services.signal_store import SignalStore
+from stockpush.services.format_utils import _has_systemctl
 from stockpush.services.function_engine import FunctionEngine
 
 logger = logging.getLogger(__name__)
@@ -40,24 +37,13 @@ class HermesAPI:
         self._init_services()
 
     def _init_services(self):
-        """Reuse Console's exact service init pattern (see console.py _init_services)."""
+        """Initialize services that don't need DB. DB services are lazy via _ensure_db()."""
+        from stockpush.services.credential_utils import decrypt_config_value
         feishu = self.config.get("feishu", {})
         raw_secret = feishu.get("sign_secret", "")
         raw_webhook = feishu.get("webhook", "")
-        webhook_url = ""
-        if raw_webhook:
-            try:
-                from stockpush.credential_store import decrypt_value
-                webhook_url = decrypt_value(raw_webhook)
-            except Exception:
-                webhook_url = raw_webhook
-        sign_secret = None
-        if raw_secret:
-            try:
-                from stockpush.credential_store import decrypt_value
-                sign_secret = decrypt_value(raw_secret)
-            except Exception:
-                sign_secret = raw_secret
+        webhook_url = decrypt_config_value(raw_webhook)
+        sign_secret = decrypt_config_value(raw_secret) or None
         feishu_pusher = FeishuPusher(
             webhook_url,
             feishu.get("enabled", False),
@@ -68,20 +54,8 @@ class HermesAPI:
         telegram = self.config.get("telegram", {})
         raw_token = telegram.get("bot_token", "")
         raw_chat = telegram.get("chat_id", "")
-        bot_token = ""
-        if raw_token:
-            try:
-                from stockpush.credential_store import decrypt_value
-                bot_token = decrypt_value(raw_token)
-            except Exception:
-                bot_token = raw_token
-        chat_id = ""
-        if raw_chat:
-            try:
-                from stockpush.credential_store import decrypt_value
-                chat_id = decrypt_value(raw_chat)
-            except Exception:
-                chat_id = raw_chat
+        bot_token = decrypt_config_value(raw_token)
+        chat_id = decrypt_config_value(raw_chat)
         telegram_pusher = TelegramPusher(
             bot_token, chat_id,
             telegram.get("enabled", False),
@@ -94,12 +68,6 @@ class HermesAPI:
         self.fetcher = DataFetcher(ds.get("primary", "xtick"))
         self.calendar = CalendarChecker()
         self.watcher = PoolWatcher()
-        from stockpush.pg_connector import PGConnector
-        self.db = PGConnector()
-        self.registry = FunctionRegistry(self.db)
-        self.store = SignalStore(self.db)
-        self.engine = FunctionEngine(self.registry, self.store, self.pusher,
-                                      lambda: self._get_symbols())
 
         sc = self.config.get("schedule", {})
         self.scheduler = RealtimeScheduler(
@@ -109,6 +77,12 @@ class HermesAPI:
             sc.get("afternoon_end", "15:05"),
             sc.get("interval_seconds", 65),
         )
+
+        # DB services — lazy, created on first _ensure_db() call
+        self._db = None
+        self._registry = None
+        self._store = None
+        self._engine = None
 
         get = "GET"
         post = "POST"
@@ -121,6 +95,57 @@ class HermesAPI:
             (post, "/api/admin/function/remove/<name>"): self.handle_remove_func,
             (post, "/api/admin/function/toggle/<name>"): self.handle_toggle_func,
         }
+
+    def _ensure_db(self) -> bool:
+        """Lazily initialize DB services. Returns True on success, False if DB unavailable."""
+        if self._db is not None:
+            return True
+        try:
+            from stockpush.pg_connector import PGConnector
+            self._db = PGConnector()
+            self.watcher._db = self._db  # 复用连接，避免 PoolWatcher 自建
+            self._registry = FunctionRegistry(self._db)
+            self._store = SignalStore(self._db)
+            self._engine = FunctionEngine(self._registry, self._store, self.pusher,
+                                           lambda: self._get_symbols())
+        except Exception as e:
+            logger.warning("Database unavailable: %s", e)
+            return False
+    # ── Unified dispatch ────────────────────────────────────
+
+    # Action name → (method, kwarg_keys)
+    HANDLERS = {
+        "menu":         ("menu",         []),
+        "status":       ("status",       []),
+        "start":        ("start_monitor",[]),
+        "stop":         ("stop_monitor", []),
+        "signals":      ("today_signals",["symbol"]),
+        "fill-today":   ("fill_today",   ["symbol","period"]),
+        "fill-history": ("fill_history", ["symbol","period","start","end"]),
+        "test":         ("test_channels",[]),
+        "pool-list":    ("pool_list",    []),
+        "pool-add":     ("pool_add",     ["symbol"]),
+        "pool-remove":  ("pool_remove",  ["symbol"]),
+        "data-summary": ("data_summary", ["symbol","start","end","period"]),
+        "data-detail":  ("data_detail",  ["symbol","period","start","end","limit"]),
+        "dividends":    ("dividend_view",[]),
+        "config-show":  ("config_show",  []),
+        "feishu-test":  ("feishu_test",  []),
+        "push-status":  ("push_status",  []),
+        "push-pool":    ("push_pool",    []),
+        "push-menu":    ("push_menu",    []),
+    }
+
+    def call(self, action: str, **kwargs) -> dict:
+        """Unified dispatch: route action name to handler method."""
+        entry = self.HANDLERS.get(action)
+        if entry is None:
+            return {"success": False, "data": None,
+                    "message": f"未知操作: {action}",
+                    "available": list(self.HANDLERS.keys())}
+        method_name, param_keys = entry
+        filtered = {k: v for k, v in kwargs.items() if k in param_keys and v is not None}
+        return getattr(self, method_name)(**filtered)
 
     # ── Validators ──────────────────────────────────────────
 
@@ -260,8 +285,16 @@ class HermesAPI:
         else:
             running = False
         nxt = None
-        symbols = self.watcher.get_symbols()
-        signals_today = self._get_today_signals(symbols)
+        try:
+            nxt = self.scheduler.get_next_run_time() if hasattr(self.scheduler, 'get_next_run_time') else None
+        except Exception:
+            pass
+        try:
+            symbols = self.watcher.get_symbols()
+        except Exception:
+            symbols = []
+        has_db = self._ensure_db()
+        signals_today = self._get_today_signals(symbols) if has_db else []
 
         return self._ok({
             "running": running,
@@ -291,9 +324,9 @@ class HermesAPI:
                 "symbols": symbols[:20],
             },
             "signal": {
-                "loaded": True,
-                "function_count": len(self.registry.get_all()),
-                "enabled_count": len(self.registry.get_enabled()),
+                "loaded": has_db,
+                "function_count": len(self._registry.get_all()) if has_db else 0,
+                "enabled_count": len(self._registry.get_enabled()) if has_db else 0,
             },
             "today_signals": {
                 "count": len(signals_today),
@@ -303,7 +336,9 @@ class HermesAPI:
 
     def _get_today_signals(self, symbols: list = None) -> list:
         """Get today's signals from store."""
-        rows = self.store.get_today()
+        if not self._ensure_db():
+            return []
+        rows = self._store.get_today()
         result = []
         for r in rows:
             symbol = r.get("symbol", "")
@@ -320,58 +355,37 @@ class HermesAPI:
     def start_monitor(self) -> dict:
         """Start monitor via systemctl (or direct on Termux)."""
         if not _has_systemctl():
-            return self._fail("systemctl 不可用，请使用 deploy/termux/stockpush-daemon.sh start 启动")
+            return self._fail("systemctl 不可用")
+
         r = subprocess.run(["systemctl", "is-active", "f51-start.service"],
                            capture_output=True, text=True)
         if r.stdout.strip() == "active":
-            return self._fail("监控已在运行中")
+            return self._ok({"status": "already_running"}, "监控已在运行中，无需重复启动")
 
-        now = datetime.now()
-        nine_thirty = now.replace(hour=9, minute=30, second=0, microsecond=0)
-        fill_results = []
-        if now > nine_thirty:
-            symbols = self.watcher.get_symbols()
-            for symbol in symbols:
-                for period in ["1m", "5m", "30m", "1d"]:
-                    try:
-                        complete = self.fetcher.check_today_data_complete(symbol, period)
-                    except Exception:
-                        complete = False
-                    if not complete:
-                        try:
-                            ok, saved, src = self.fetcher.fetch_and_save(symbol, period)
-                            fill_results.append({
-                                "symbol": symbol, "period": period,
-                                "result": f"{saved}条 ({src})" if ok else "补全失败",
-                            })
-                        except Exception as e:
-                            fill_results.append({
-                                "symbol": symbol, "period": period,
-                                "result": f"出错: {e}",
-                            })
+        subprocess.run(["systemctl", "start", "f51-start.timer"],
+                       capture_output=True)
+        r2 = subprocess.run(["systemctl", "is-active", "f51-start.service"],
+                            capture_output=True, text=True)
+        started = r2.stdout.strip() == "active"
 
-
-        sc = self.config.get("schedule", {})
-        return self._ok({
-            "status": "已启动",
-            "schedule": {
-                "morning": f"{sc.get('morning_start', '09:25')}-{sc.get('morning_end', '11:35')}",
-                "afternoon": f"{sc.get('afternoon_start', '13:00:05')}-{sc.get('afternoon_end', '15:05')}",
-                "interval": f"{sc.get('interval_seconds', 65)}s",
-            },
-            "data_fill": fill_results if fill_results else None,
-        }, "监控已启动")
+        return self._ok({"status": "started" if started else "timer_enabled"},
+                        "监控已启动" if started else "监控 timer 已启用，将在下一个交易时段启动")
 
     def stop_monitor(self) -> dict:
         """Stop monitor via systemctl (or direct on Termux)."""
         if not _has_systemctl():
-            return self._fail("systemctl 不可用，请使用 deploy/termux/stockpush-daemon.sh stop 停止")
+            return self._fail("systemctl 不可用")
+
+        # 检查当前状态
         r = subprocess.run(["systemctl", "is-active", "f51-start.service"],
                            capture_output=True, text=True)
         if r.stdout.strip() != "active":
-            return self._fail("监控未运行")
-        subprocess.run(["systemctl", "stop", "f51-start.service"])
-        return self._ok({"status": "已停止"}, "监控已停止")
+            return self._ok({"status": "already_stopped"}, "监控未运行")
+        result = subprocess.run(["systemctl", "stop", "f51-start.timer", "f51-start.service"],
+                       capture_output=True)
+        if result.returncode != 0:
+            return self._fail(f"停止失败: systemctl 返回 {result.returncode}")
+        return self._ok({"status": "stopped"}, "监控已停止")
 
     def _job_func(self):
         """Job function for scheduler — fetch data and log to temp table."""
@@ -433,13 +447,13 @@ class HermesAPI:
                             from stockpush.services.download_logger import log_downloads
                             log_downloads(db, now_str, symbol, period, df_log)
                         except Exception:
-                            pass
+                            logger.debug("Download logging failed", exc_info=True)
                     except Exception:
                         continue
             if db:
                 db.close()
         except Exception:
-            pass
+            logger.exception("Job function failed")
 
     def fill_today(self, symbol: str = None, period: str = None) -> dict:
         """Fill today's data for given symbol(s) and period(s)."""
@@ -474,19 +488,21 @@ class HermesAPI:
 
     def _run_signals_for_symbols(self, symbols: list) -> list:
         """Run all enabled signal functions for given symbols with today's range."""
+        if not self._ensure_db():
+            return []
         from datetime import date
         today = date.today().isoformat()
-        functions = self.registry.get_enabled()
+        functions = self._registry.get_enabled()
         results = []
         for func_info in functions:
             for symbol in symbols:
                 try:
-                    r = self.registry.execute(
+                    r = self._registry.execute(
                         func_info.name, symbol, func_info.period,
                         today, today, func_info.param_set_id,
                     )
                     sigs = r.get("signals", [])
-                    self.store.write_signals(func_info.id, symbol, sigs)
+                    self._store.write_signals(func_info.id, symbol, sigs)
                     results.append({
                         "symbol": symbol, "function": func_info.display_name,
                         "signals": len(sigs),
@@ -535,12 +551,14 @@ class HermesAPI:
 
     def today_signals(self, symbol: str = None) -> dict:
         """Return today's signals from store."""
+        if not self._ensure_db():
+            return self._fail("数据库不可用")
         try:
             sym = self._validate_symbol(symbol) if symbol else None
         except ValueError as e:
             return self._fail(str(e))
 
-        signals = self.store.get_today()
+        signals = self._store.get_today()
         if sym:
             signals = [s for s in signals if s.get("symbol") == sym]
 
@@ -626,7 +644,7 @@ class HermesAPI:
             from stockpush.pool_mgr.pool_mgr import PoolMgrService
 
             xtick = XTickProvider()
-            svc = PoolMgrService(db_connector=self.db)
+            svc = PoolMgrService(db_connector=self._db)
 
             # 一次调用获取所有代码（type-code 格式）
             # type 1=股票, 30=ETF, 20=LOF, 10=指数, 3=其他
@@ -895,17 +913,9 @@ class HermesAPI:
 
     def config_show(self) -> dict:
         """Return current full configuration."""
+        has_db = self._ensure_db()
         return self._ok({
-            "datasource": {
-                "primary": self.fetcher.primary,
-            },
-            "schedule": {
-                "morning_start": self.scheduler.morning_start,
-                "morning_end": self.scheduler.morning_end,
-                "afternoon_start": self.scheduler.afternoon_start,
-                "afternoon_end": self.scheduler.afternoon_end,
-                "interval_seconds": self.scheduler.interval_seconds,
-            },
+            "running": False,
             "feishu": {
                 "enabled": self.pusher.feishu.enabled,
                 "sign_enabled": self.pusher.feishu.sign_enabled,
@@ -918,8 +928,8 @@ class HermesAPI:
             },
             "push_method": self.pusher.method,
             "signal": {
-                "function_count": len(self.registry.get_all()),
-                "enabled_count": len(self.registry.get_enabled()),
+                "function_count": len(self._registry.get_all()) if has_db else 0,
+                "enabled_count": len(self._registry.get_enabled()) if has_db else 0,
             },
         })
 
@@ -1044,7 +1054,9 @@ class HermesAPI:
 
     def handle_list_functions(self) -> dict:
         """List all registered functions."""
-        funcs = self.registry.get_all()
+        if not self._ensure_db():
+            return self._fail("数据库不可用")
+        funcs = self._registry.get_all()
         return self._ok({
             "count": len(funcs),
             "functions": [
@@ -1061,7 +1073,9 @@ class HermesAPI:
 
     def handle_today_signals(self) -> dict:
         """Get today's signals from store."""
-        rows = self.store.get_today()
+        if not self._ensure_db():
+            return self._fail("数据库不可用")
+        rows = self._store.get_today()
         result = []
         for r in rows:
             result.append({
@@ -1080,17 +1094,19 @@ class HermesAPI:
 
     def handle_backtest(self, func_name: str, symbol: str) -> dict:
         """Backtest a function for a symbol (no archive/push)."""
+        if not self._ensure_db():
+            return self._fail("数据库不可用")
         try:
             sym = self._validate_symbol(symbol)
         except ValueError as e:
             return self._fail(str(e))
 
-        func_info = self.registry.get_by_name(func_name)
+        func_info = self._registry.get_by_name(func_name)
         if not func_info:
             return self._fail(f"函数 '{func_name}' 未注册")
 
         try:
-            signals = self.engine.backtest(func_name, sym)
+            signals = self._engine.backtest(func_name, sym)
             return self._ok({
                 "func_name": func_name,
                 "symbol": sym,
@@ -1102,19 +1118,23 @@ class HermesAPI:
 
     def handle_validate_func(self, **kwargs) -> dict:
         """Validate a function module/name pair."""
+        if not self._ensure_db():
+            return self._fail("数据库不可用")
         module_path = kwargs.get("module_path")
         func_name = kwargs.get("func_name")
 
         if not module_path or not func_name:
             return self._fail("参数缺失: module_path, func_name")
 
-        result = self.registry.validate(module_path, func_name)
+        result = self._registry.validate(module_path, func_name)
         if result.get("valid"):
             return self._ok(result, "验证通过")
         return self._fail(result.get("error", "验证失败"))
 
     def handle_register_func(self, **kwargs) -> dict:
         """Register a new function in the registry."""
+        if not self._ensure_db():
+            return self._fail("数据库不可用")
         name = kwargs.get("name")
         display_name = kwargs.get("display_name")
         module_path = kwargs.get("module_path")
@@ -1127,7 +1147,7 @@ class HermesAPI:
             return self._fail("参数缺失: name, module_path, func_name")
 
         try:
-            new_id = self.registry.register(
+            new_id = self._registry.register(
                 name, display_name or name, module_path, func_name,
                 period, param_set_id, enabled,
             )
@@ -1137,26 +1157,72 @@ class HermesAPI:
 
     def handle_remove_func(self, name: str) -> dict:
         """Remove a function from the registry."""
-        func_info = self.registry.get_by_name(name)
+        if not self._ensure_db():
+            return self._fail("数据库不可用")
+        func_info = self._registry.get_by_name(name)
         if not func_info:
             return self._fail(f"函数 '{name}' 未注册")
         try:
-            self.registry.remove(name)
+            self._registry.remove(name)
             return self._ok({"name": name}, f"函数 '{name}' 已删除")
         except Exception as e:
             return self._fail(f"删除失败: {e}")
 
     def handle_toggle_func(self, name: str) -> dict:
         """Toggle function enabled/disabled state."""
-        func_info = self.registry.get_by_name(name)
+        if not self._ensure_db():
+            return self._fail("数据库不可用")
+        func_info = self._registry.get_by_name(name)
         if not func_info:
             return self._fail(f"函数 '{name}' 未注册")
         try:
             new_state = not func_info.enabled
-            self.registry.set_enabled(name, new_state)
+            self._registry.set_enabled(name, new_state)
             return self._ok(
                 {"name": name, "enabled": new_state},
                 f"函数 '{name}' 已{'启用' if new_state else '禁用'}",
             )
         except Exception as e:
             return self._fail(f"切换失败: {e}")
+
+    def test_channels(self) -> dict:
+        """Test all configured push channels and send status report."""
+        results = {}
+        push_method = self.pusher.method
+
+        # Test Feishu
+        if push_method in ("feishu", "both"):
+            if self.pusher.feishu.webhook_url:
+                fr = self.pusher.feishu.test()
+                results["feishu"] = {
+                    "test": "ok" if fr.get("success") else "fail",
+                    "message": fr.get("message", ""),
+                }
+            else:
+                results["feishu"] = {"test": "skip", "message": "Webhook 未配置"}
+        else:
+            results["feishu"] = {"test": "skip", "message": "推送方式未包含飞书"}
+
+        # Test Telegram
+        if push_method in ("telegram", "both"):
+            if self.pusher.telegram.configured:
+                tr = self.pusher.telegram.test()
+                results["telegram"] = {
+                    "test": "ok" if tr.get("success") else "fail",
+                    "message": tr.get("message", ""),
+                }
+            else:
+                results["telegram"] = {"test": "skip", "message": "Bot Token 或 Chat ID 未配置"}
+        else:
+            results["telegram"] = {"test": "skip", "message": "推送方式未包含 Telegram"}
+
+        # Push status report
+        status_result = self.push_status()
+        results["status_report"] = "ok" if status_result.get("success") else "fail"
+
+        all_ok = all(
+            v.get("test") != "fail"
+            for v in results.values()
+            if isinstance(v, dict) and "test" in v
+        )
+        return self._ok(results, "通道测试完成" if all_ok else "部分通道测试失败")

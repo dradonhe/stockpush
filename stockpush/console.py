@@ -4,16 +4,14 @@ F5.1 控制台管理面板
 """
 import os
 import sys
-import json
 import logging
-import shutil
 import subprocess
 import threading
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-
 from stockpush.services.hermes_api import HermesAPI
+from stockpush.services.format_utils import _has_systemctl
 
 
 class Console:
@@ -27,14 +25,11 @@ class Console:
         self.api = HermesAPI(config, project_root, f51_root)
 
     # ── service running check (systemd managed) ──
-    @staticmethod
-    def _has_systemctl() -> bool:
-        return shutil.which("systemctl") is not None
 
     @staticmethod
     def _is_running() -> bool:
         """Check if F5.1 monitor service is active via systemctl."""
-        if not Console._has_systemctl():
+        if not _has_systemctl():
             return False
         r = subprocess.run(
             ["systemctl", "is-active", "f51-start.service"],
@@ -525,7 +520,7 @@ class Console:
 
         print("启动监控服务...")
         sc = self.config.get("schedule", {})
-        if self._has_systemctl():
+        if _has_systemctl():
             subprocess.run(["systemctl", "start", "f51-start.service"])
             self._log("监控已启动")
             print(f"监控已启动")
@@ -544,7 +539,7 @@ class Console:
             print("监控未运行。")
             self._press_enter()
             return
-        if self._has_systemctl():
+        if _has_systemctl():
             subprocess.run(["systemctl", "stop", "f51-start.service"])
         else:
             print("⚠ systemctl 不可用，请手动停止: kill $(cat /tmp/stockpush.pid)")
@@ -1360,7 +1355,7 @@ class Console:
 
     def _cfg_register_systemd(self):
         self._print_header("注册系统自启")
-        if not self._has_systemctl():
+        if not _has_systemctl():
             print("⚠ systemctl 不可用，此功能仅支持 Linux systemd 环境。")
             self._press_enter()
             return
@@ -1441,7 +1436,7 @@ WantedBy=timers.target
 
     def _cfg_unregister_systemd(self):
         self._print_header("取消系统自启")
-        if not self._has_systemctl():
+        if not _has_systemctl():
             print("⚠ systemctl 不可用，此功能仅支持 Linux systemd 环境。")
             self._press_enter()
             return

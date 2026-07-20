@@ -5,10 +5,8 @@ F5.1 数据抓取模块
 """
 
 import pandas as pd
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, time, timedelta
 from typing import List, Dict, Any, Optional, Tuple
-from pathlib import Path
-import sys
 import logging
 
 logger = logging.getLogger(__name__)
@@ -140,7 +138,7 @@ class DataFetcher:
             return 'stock'
         try:
             if self._db is None:
-                self._db = PGConnector(self.db_path) if self.db_path else PGConnector()
+                self._db = PGConnector()
             # 优先从自选股池获取用户定义的类型（最准确）
             result = self._db.execute_query(
                 "SELECT type FROM tb_stock_pool WHERE symbol = ? LIMIT 1",
@@ -298,9 +296,8 @@ class DataFetcher:
         table = PERIOD_TABLE_MAP.get(period)
         if not table:
             raise ValueError(f"Invalid period '{period}'. Must be one of: {list(PERIOD_TABLE_MAP.keys())}")
-        from stockpush.pg_connector import PGConnector
         if self._db is None:
-            self._db = PGConnector(self.db_path) if self.db_path else PGConnector()
+            self._db = PGConnector()
         self._db.execute_update(f"""
             CREATE TABLE IF NOT EXISTS {table} (
                 ts TIMESTAMP NOT NULL,
@@ -360,7 +357,7 @@ class DataFetcher:
 
         try:
             if self._db is None:
-                self._db = PGConnector(self.db_path) if self.db_path else PGConnector()
+                self._db = PGConnector()
 
             saved = 0
             columns = ["ts", "symbol", "open", "high", "low", "close", "vol", "amount"]
@@ -378,7 +375,7 @@ class DataFetcher:
                     vol = EXCLUDED.vol,
                     amount = EXCLUDED.amount
             """
-            
+
             for record in data:
                 try:
                     params = tuple(record.get(col) for col in columns)
@@ -404,7 +401,7 @@ class DataFetcher:
             return
         try:
             from stockpush.pg_connector import PGConnector
-            db = PGConnector(self.db_path) if self.db_path else PGConnector()
+            db = PGConnector()
         except Exception:
             return
 
@@ -422,7 +419,7 @@ class DataFetcher:
                 return
 
             hour, minute = (9, 35) if period == "5m" else (10, 0)
-            ts = datetime.combine(date.today(), __import__("datetime").time(hour, minute, 0))
+            ts = datetime.combine(date.today(), time(hour, minute, 0))
 
             # 已有则跳过（避免重复垫入）
             table = PERIOD_TABLE_MAP.get(period, "")
@@ -608,7 +605,7 @@ class DataFetcher:
 
         try:
             if self._db is None:
-                self._db = PGConnector(self.db_path) if self.db_path else PGConnector()
+                self._db = PGConnector()
 
             table_name = PERIOD_TABLE_MAP[period]
 
@@ -632,4 +629,4 @@ class DataFetcher:
 
         except Exception as e:
             logger.warning("check_today_data_complete failed for %s %s: %s", symbol, period, e)
-            return True  # 出错时默认完整
+            return False  # 检查失败时默认视为不完整

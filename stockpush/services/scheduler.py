@@ -5,17 +5,14 @@ Supports time-based scheduling with trading hours restrictions.
 """
 
 import logging
-from datetime import datetime
+import threading
+from datetime import datetime, time
 from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 logger = logging.getLogger(__name__)
-
-# Module-level scheduler instance
-_scheduler: Optional[BackgroundScheduler] = None
-_scheduler_lock = __import__("threading").Lock()
 
 
 class RealtimeScheduler:
@@ -37,7 +34,7 @@ class RealtimeScheduler:
         self.afternoon_start = afternoon_start
         self.afternoon_end = afternoon_end
         self.interval_seconds = interval_seconds
-        self._lock = __import__("threading").Lock()
+        self._lock = threading.Lock()
         self._scheduler = BackgroundScheduler()
 
     def _is_within_trading_hours(self) -> bool:
@@ -55,7 +52,7 @@ class RealtimeScheduler:
         parts = self.afternoon_end.split(":")
         h, m = int(parts[0]), int(parts[1])
         s = int(parts[2]) if len(parts) > 2 else 0
-        end = __import__("datetime").time(h, m, s)
+        end = time(h, m, s)
         return now > end
 
     def start(self, job_func, job_id: str = "f51_realtime_job") -> None:

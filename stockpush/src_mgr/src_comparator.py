@@ -638,7 +638,7 @@ class SourceComparatorService:
         Returns:
             (is_valid, error_message)
         """
-        valid_sources = ['byapi', 'xtick']
+        valid_sources = ['xtick']
         valid_asset_types = ['stock', 'fund']
         valid_periods = ['1d', '1m', '5m', '15m', '30m', '60m']
         
@@ -731,92 +731,6 @@ class SourceComparatorService:
             )
 
             raise DataSourceError(f"数据源[{source_name}]不支持该能力或获取失败")
-            if df is None or (hasattr(df, 'empty') and df.empty):
-                raise NoDataError(f"数据源[{source_name}]查询结果为空")
-
-            data = []
-            self.logger.debug(f"开始转换DataFrame，列名: {df.columns.tolist()}, 行数: {len(df)}")
-
-            def _normalize_time_text(time_text: str) -> str:
-                text = str(time_text).strip()
-                if not text:
-                    return ''
-                if ':' in text:
-                    parts = text.split(':')
-                    if len(parts) == 2:
-                        return f"{parts[0].zfill(2)}:{parts[1].zfill(2)}:00"
-                    if len(parts) == 3:
-                        return f"{parts[0].zfill(2)}:{parts[1].zfill(2)}:{parts[2].zfill(2)}"
-                    return text
-                digits = ''.join(ch for ch in text if ch.isdigit())
-                if len(digits) >= 14:
-                    dt_digits = digits[:14]
-                    try:
-                        dt = datetime.strptime(dt_digits, '%Y%m%d%H%M%S')
-                        return dt.strftime('%Y-%m-%d %H:%M:%S')
-                    except ValueError:
-                        pass
-                if len(digits) == 6:
-                    return f"{digits[0:2]}:{digits[2:4]}:{digits[4:6]}"
-                if len(digits) == 4:
-                    return f"{digits[0:2]}:{digits[2:4]}:00"
-                return text
-
-            for idx, row in df.iterrows():
-                try:
-                    ts = None
-                    date_col = '日期' if '日期' in df.columns else ('date' if 'date' in df.columns else None)
-                    time_col = '时间' if '时间' in df.columns else ('time' if 'time' in df.columns else None)
-
-                    if date_col and time_col:
-                        date_text = str(row.get(date_col, '')).strip()
-                        time_text = _normalize_time_text(row.get(time_col, ''))
-                        if date_text:
-                            if len(time_text) >= 19 and time_text[4] == '-' and time_text[7] == '-':
-                                ts = time_text
-                            else:
-                                ts = f"{date_text} {time_text}".strip() if time_text else date_text
-
-                    for col in ['datetime', 'timestamp', '时间', 'time', '日期', 'date']:
-                        if ts:
-                            break
-                        if col in df.columns:
-                            value = str(row[col]).strip()
-                            if col in ['时间', 'time']:
-                                value = _normalize_time_text(value)
-                            ts = value
-                            break
-
-                    if not ts:
-                        ts = str(row.name) if hasattr(row, 'name') else ''
-
-                    open_val = float(row.get('开盘', row.get('open', 0)))
-                    high_val = float(row.get('最高', row.get('high', 0)))
-                    low_val = float(row.get('最低', row.get('low', 0)))
-                    close_val = float(row.get('收盘', row.get('close', 0)))
-                    vol_val = float(row.get('成交量', row.get('volume', row.get('vol', 0))))
-                    amount_val = float(row.get('成交额', row.get('amount', 0)))
-
-                    data.append({
-                        'ts': ts,
-                        'symbol': symbol,
-                        'open': open_val,
-                        'high': high_val,
-                        'low': low_val,
-                        'close': close_val,
-                        'vol': vol_val,
-                        'amount': amount_val
-                    })
-                except Exception as e:
-                    self.logger.warning(f"解析第{idx}行数据失败: {e}, row数据: {row.to_dict()}")
-                    continue
-
-            if not data:
-                self.logger.error(f"DataFrame转换后数据为空! 原DataFrame行数: {len(df)}, 列名: {df.columns.tolist()}")
-                raise NoDataError(f"数据源[{source_name}]查询结果为空")
-
-            self.logger.info(f"数据拉取成功: source={source_name}, symbol={symbol}, records={len(data)}")
-            return data
 
         except NoDataError:
             raise

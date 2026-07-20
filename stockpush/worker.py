@@ -16,14 +16,16 @@ if os.path.exists(VENV_PY) and os.path.normpath(sys.executable) != VENV_PY:
     sys.exit(result.returncode)
 
 import signal
-signal.signal(signal.SIGINT, lambda s, f: os._exit(0))
+signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
 if hasattr(signal, 'SIGBREAK'):
-    signal.signal(signal.SIGBREAK, lambda s, f: os._exit(0))
+    signal.signal(signal.SIGBREAK, lambda s, f: sys.exit(0))
 
 import argparse
 from pathlib import Path
 import yaml
 import json
+import datetime
+import logging
 
 PROJECT_ROOT = Path(__file__).parent.parent
 PACKAGE_ROOT = Path(__file__).parent
@@ -43,6 +45,8 @@ def main():
     parser.add_argument('--start', type=str, help='Start date YYYY-MM-DD')
     parser.add_argument('--end', type=str, help='End date YYYY-MM-DD')
     parser.add_argument('--limit', type=int, default=20, help='Result limit')
+    parser.add_argument('--output', type=str, choices=['json','text'], default='json',
+                        help='Output format (default: json)')
     args = parser.parse_args()
 
     config_file = Path(args.config) if args.config else (LOCAL_CONFIG_FILE if LOCAL_CONFIG_FILE.exists() else CONFIG_FILE)
@@ -72,42 +76,49 @@ def main():
 
 
 def _run_hermes_mode(config: dict, args):
-    """Execute a Hermes API action and print JSON result."""
+    """Execute a Hermes API action and print result."""
     from stockpush.services.hermes_api import HermesAPI
 
     api = HermesAPI(config, PROJECT_ROOT, PACKAGE_ROOT)
+    result = api.call(args.hermes,
+                      symbol=args.symbol, period=args.period,
+                      start=args.start, end=args.end, limit=args.limit)
 
-    actions = {
-        "menu":         lambda: api.menu(),
-        "status":       lambda: api.status(),
-        "start":        lambda: api.start_monitor(),
-        "stop":         lambda: api.stop_monitor(),
-        "fill-today":   lambda: api.fill_today(args.symbol, args.period),
-        "fill-history": lambda: api.fill_history(args.symbol, args.period, args.start, args.end),
-        "signals":      lambda: api.today_signals(args.symbol),
-        "pool-list":    lambda: api.pool_list(),
-        "pool-add":     lambda: api.pool_add(args.symbol),
-        "pool-remove":  lambda: api.pool_remove(args.symbol),
-        "data-summary": lambda: api.data_summary(args.symbol, args.start, args.end, args.period),
-        "data-detail":  lambda: api.data_detail(args.symbol, args.period, args.start, args.end, args.limit),
-        "dividends":    lambda: api.dividend_view(),
-        "config-show":  lambda: api.config_show(),
-        "feishu-test":  lambda: api.feishu_test(),
-        "push-status":  lambda: api.push_status(),
-        "push-pool":    lambda: api.push_pool(),
-        "push-menu":    lambda: api.push_menu(),
+    if args.output == "text":
+        _print_text(args.hermes, result)
+    else:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def _print_text(action: str, result: dict):
+    """Format a Hermes API result as a one-line human-readable summary."""
+    ok = result.get("success", False)
+    icon = "✅" if ok else "❌"
+    msg = result.get("message", "")
+    data = result.get("data", {})
+
+    formatters = {
+        "status": lambda: (
+            f"{icon} 监控:{'运行中' if data.get('running') else '已停止'}"
+            f" | 数据源:{data.get('datasource',{}).get('primary','?')}"
+            f" | 自选:{data.get('watchlist',{}).get('count',0)}只"
+            f" | 信号:{data.get('signal',{}).get('enabled_count',0)}/{data.get('signal',{}).get('function_count',0)}个启用"
+            f" | 今日信号:{data.get('today_signals',{}).get('count',0)}个"
+        ),
+        "signals": lambda: (
+            f"{icon} {msg}"
+            + (f" ({data.get('count',0)}条)" if ok and data else "")
+        ),
+        "test": lambda: (
+            f"{icon} {msg}"
+            + (f" | 飞书:{data.get('feishu',{}).get('test','?')}"
+               f" Telegram:{data.get('telegram',{}).get('test','?')}"
+               if ok and data else "")
+        ),
     }
 
-    handler = actions.get(args.hermes)
-    if handler is None:
-        result = {"success": False, "data": None, "message": f"未知操作: {args.hermes}",
-                  "available": list(actions.keys())}
-    else:
-        result = handler()
-
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-
-
+    fmt = formatters.get(action, lambda: f"{icon} {msg}")
+    print(fmt())
 def _run_headless_mode(config: dict):
     """Run in headless mode — systemd timer driven."""
     import logging
@@ -124,23 +135,12 @@ def _run_headless_mode(config: dict):
     from stockpush.services.scheduler import RealtimeScheduler
     from stockpush.services.pool_watcher import PoolWatcher
 
+    from stockpush.services.credential_utils import decrypt_config_value
     feishu_cfg = config.get("feishu", {})
     raw_secret = feishu_cfg.get("sign_secret", "")
-    sign_secret = None
-    if raw_secret:
-        try:
-            from stockpush.credential_store import decrypt_value
-            sign_secret = decrypt_value(raw_secret)
-        except Exception:
-            sign_secret = raw_secret
+    sign_secret = decrypt_config_value(raw_secret) or None
     raw_webhook = feishu_cfg.get("webhook", "")
-    webhook_url = ""
-    if raw_webhook:
-        try:
-            from stockpush.credential_store import decrypt_value
-            webhook_url = decrypt_value(raw_webhook)
-        except Exception:
-            webhook_url = raw_webhook
+    webhook_url = decrypt_config_value(raw_webhook)
     feishu_pusher = FeishuPusher(
         webhook_url, feishu_cfg.get("enabled", False),
         sign_secret, feishu_cfg.get("sign_enabled", False)
@@ -149,20 +149,8 @@ def _run_headless_mode(config: dict):
     telegram_cfg = config.get("telegram", {})
     raw_token = telegram_cfg.get("bot_token", "")
     raw_chat = telegram_cfg.get("chat_id", "")
-    bot_token = ""
-    if raw_token:
-        try:
-            from stockpush.credential_store import decrypt_value
-            bot_token = decrypt_value(raw_token)
-        except Exception:
-            bot_token = raw_token
-    chat_id = ""
-    if raw_chat:
-        try:
-            from stockpush.credential_store import decrypt_value
-            chat_id = decrypt_value(raw_chat)
-        except Exception:
-            chat_id = raw_chat
+    bot_token = decrypt_config_value(raw_token)
+    chat_id = decrypt_config_value(raw_chat)
     telegram_pusher = TelegramPusher(
         bot_token, chat_id,
         telegram_cfg.get("enabled", False),
@@ -233,7 +221,7 @@ def _run_headless_mode(config: dict):
                 _job_logger.warning("Watchlist is empty, skipping job.")
                 return
 
-            now_dt = __import__("datetime").datetime.now()
+            now_dt = datetime.datetime.now()
             now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
             from stockpush.pg_connector import PGConnector as _DBC
             _log_db = _DBC()
@@ -255,8 +243,6 @@ def _run_headless_mode(config: dict):
                     return df
                 bar_times = _pd.to_datetime(df[ts_col])
                 dt_ts = _pd.Timestamp(dt)
-                period_td = _pd.Timedelta(minutes=period_m)
-                # 优先END约定（bar_ts为结束时间）：bar_ts - period < dt <= bar_ts
                 matched = df[(bar_times - period_td < dt_ts) & (dt_ts <= bar_times)]
                 if matched.empty:
                     # 回退START约定（bar_ts为开始时间）：bar_ts <= dt < bar_ts + period

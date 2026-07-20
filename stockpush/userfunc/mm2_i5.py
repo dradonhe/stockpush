@@ -337,7 +337,6 @@ def _compute(df, *,
               & (_BARSLAST(S41) == _BARSLAST(CROSS_75)))
     S41_EXIT = (_raw_s.fillna(False).astype(bool)
                 & ~_raw_s.fillna(False).astype(bool).shift(1).fillna(False).astype(bool))
-    S41 = _S41
     _B42 = _CROSS(RSIH, TH_LO) & ((MC1 < 0) | (MC2 < 0) | (MC3 < 0)) & CH_B2_BULL & (_LLV(L, 10) == XG2) & (XG2 > XG3)
     _S42 = _CROSS(TH_HI, RSIH) & ((MC1 > 0) | (MC2 > 0) | (MC3 > 0)) & CH_B2_BEAR & (_HHV(H, 10) == SG2) & (SG2 < SG3)
 
@@ -402,7 +401,6 @@ def _compute(df, *,
         # 逐级信号
         "B1A": B1A, "S1A": S1A,
         "B1B": B1B, "S1B": S1B,
-        "B41": B41, "S41": S41,
         "B42": B42, "S42": S42,
         "B2":  B2,  "S2":  S2,
         # 综合

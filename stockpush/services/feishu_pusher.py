@@ -15,23 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 
-def _format_channel_states(channel_states: str) -> str:
-    """对通道状态字符串的30m_mm2（第4位）标记颜色。
+from .format_utils import format_channel_states
 
-    红多: 第4位为"多", 或(第4位为"震"且第5位为"多")
-    其他: 绿色
-    """
-    parts = channel_states.split("/")
-    if len(parts) < 5:
-        return channel_states
-    val4 = parts[3]   # 30m_mm2
-    val5 = parts[4]   # 30m_mm3
-    if val4 == "多" or (val4 == "震" and val5 == "多"):
-        color = "🔴"
-    else:
-        color = "🟢"
-    parts[3] = f"{color}{val4}"
-    return "/".join(parts)
 class FeishuPusher:
     """飞书推送器"""
 
@@ -189,7 +174,7 @@ class FeishuPusher:
 
             line = f"{symbol} {name} | {period} | {dir_text} | {time_short} | {indicator} | {open_str}"
             if channel_states:
-                line += f"\n  通道: {_format_channel_states(channel_states)}"
+                line += f"\n  通道: {format_channel_states(channel_states)}"
             lines.append(line)
 
         message = "\n".join(lines)

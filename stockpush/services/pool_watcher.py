@@ -33,13 +33,19 @@ class PoolWatcher:
 
     QUERY = "SELECT symbol, name, type FROM tb_stock_pool WHERE type IN ('stock', 'fund')"
 
-    def __init__(self):
+    def __init__(self, db=None):
         """初始化自选股池监听器
-        使用 PostgreSQL 作为数据源"""
+        
+        Args:
+            db: 外部 PGConnector 实例（可选）。传入时复用，不传则自建。
+        """
         self._last_hash: Optional[int] = None
+        self._db = db
 
     def _get_db(self):
         """获取数据库连接"""
+        if self._db is not None:
+            return self._db
         DBC = self._get_connector_class()
         return DBC()
 

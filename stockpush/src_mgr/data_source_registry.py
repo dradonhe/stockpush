@@ -79,9 +79,15 @@ class DataSourceRegistry:
 
     def _seed_registry(self, conn):
         """自动初始化 tb_datasource_registry 表和数据"""
-        conn.execute("DROP TABLE IF EXISTS tb_datasource_registry")
+        # Check if table already has data before seeding
+        existing = conn.execute_query(
+            "SELECT COUNT(*) as cnt FROM tb_datasource_registry"
+        )
+        if existing and existing[0].get('cnt', 0) > 0:
+            self.logger.info(f"数据源注册表已存在（{existing[0]['cnt']}条记录），跳过初始化")
+            return
         conn.execute("""
-            CREATE TABLE tb_datasource_registry (
+            CREATE TABLE IF NOT EXISTS tb_datasource_registry (
                 id INTEGER PRIMARY KEY,
                 provider_name VARCHAR(50) NOT NULL UNIQUE,
                 display_name VARCHAR(100) NOT NULL,
@@ -114,9 +120,9 @@ class DataSourceRegistry:
             )
         """)
         providers = [
-            ('byapi', '币赢API', 'stockpush.src_mgr.src_provider.ByapiProvider', True, 15,
+            ('byapi', '币赢API', 'stockpush.src_mgr.src_provider.ByapiProvider', False, 15,
              '{"licence":"","timeout":10,"retry":2}', 10, 2,
-             True,True,True,False, True,True,True,False, True,True,True,False),
+             False,False,False,False, False,False,False,False, False,False,False,False),
             ('xtick', 'XTick', 'stockpush.src_mgr.xtick_provider.XTickProvider', True, 12,
              '{"timeout":15}', 15, 2,
              True,True,True,True, True,True,True,True, True,True,True,False),

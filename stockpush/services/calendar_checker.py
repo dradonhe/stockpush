@@ -6,8 +6,6 @@ F5.1 交易日和除权除息检查模块
 import pandas as pd
 from datetime import date, datetime, timedelta
 from typing import List, Tuple, Optional, Dict, Any
-from pathlib import Path
-import sys
 import logging
 
 logger = logging.getLogger(__name__)

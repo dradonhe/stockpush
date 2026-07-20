@@ -665,7 +665,10 @@ class DataDownService:
         if hasattr(self.db, 'execute_many'):
             affected = self.db.execute_many(sql, params_list)
             return affected if affected > 0 else len(params_list)
-        return len(params_list)
+        raise RuntimeError(
+            f"Database connector missing execute_many method; "
+            f"cannot persist {len(params_list)} rows to {table}"
+        )
 
     def _normalize_kline_rows(self, rows: List[Dict], symbol: str, period: str = '1d') -> List[Dict]:
         out: List[Dict] = []

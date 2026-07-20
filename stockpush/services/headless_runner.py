@@ -3,9 +3,10 @@
 import logging
 import os
 import signal
+import sys
+import time
 from datetime import datetime
 from typing import Optional
-
 logger = logging.getLogger(__name__)
 
 def run_headless(config: dict, pusher, fetcher, calendar, scheduler, job_func) -> None:
@@ -20,7 +21,7 @@ def run_headless(config: dict, pusher, fetcher, calendar, scheduler, job_func) -
         )
         pusher.push(msg)
         logger.info("Not a trading day, exiting.")
-        os._exit(0)
+        sys.exit(0)
 
     # ── 3. Push startup notification ──
     watchlist = calendar.load_watchlist()
@@ -112,7 +113,7 @@ def run_headless(config: dict, pusher, fetcher, calendar, scheduler, job_func) -
             pusher.push(stop_msg)
             scheduler.stop()
             break
-        __import__("time").sleep(1)
+        time.sleep(1)
 
 
 def _check_and_fill_data(fetcher, symbols: list, pusher) -> None:

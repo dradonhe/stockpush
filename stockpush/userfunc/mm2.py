@@ -29,7 +29,7 @@ if _project_root not in sys.path:
 
 import numpy as np
 import pandas as pd
-from MyTT import EMA, HHV, LLV, SMA as _mytt_SMA
+from MyTT import EMA, SMA as _mytt_SMA
 from MyTT import REF as _mytt_REF
 import logging
 log = logging.getLogger(__name__)
@@ -75,13 +75,15 @@ def _EMA(series, n):
 
 
 def _HHV(series, n):
-    return _S(HHV(series, n),
-              index=series.index if hasattr(series, 'index') else None)
+    """HHV — n 周期内最高值"""
+    n = min(n, len(series))
+    return series.rolling(n, min_periods=1).max()
 
 
 def _LLV(series, n):
-    return _S(LLV(series, n),
-              index=series.index if hasattr(series, 'index') else None)
+    """LLV — n 周期内最低值"""
+    n = min(n, len(series))
+    return series.rolling(n, min_periods=1).min()
 
 
 def _SMA(series, n, m):
@@ -91,21 +93,16 @@ def _SMA(series, n, m):
 
 
 def _BARSLAST(cond):
-    """BARSLAST(cond) — 距最近一次 cond 为真的周期数。
-
-    返回 float Series；若 cond 从未为真则为 NaN。
-    使用 numpy 数组迭代，O(n) 且无 pandas iloc 开销。
-    """
-    c = cond.values.astype(bool)
-    result = np.empty(len(c), dtype=float)
-    last_true = -1
-    for i in range(len(c)):
-        if c[i]:
-            last_true = i
-        if last_true >= 0:
-            result[i] = i - last_true
-        else:
-            result[i] = np.nan
+    """BARSLAST(cond) — 距最近一次 cond 为真的周期数（向量化）"""
+    c_arr = cond.values.astype(np.bool_)
+    n = len(c_arr)
+    true_idx = np.where(c_arr)[0]
+    if len(true_idx) == 0:
+        return pd.Series(np.full(n, np.nan), index=cond.index)
+    pos = np.arange(n)
+    last = true_idx[np.searchsorted(true_idx, pos, side='right') - 1]
+    result = pos.astype(float) - last.astype(float)
+    result[: true_idx[0]] = np.nan
     return pd.Series(result, index=cond.index)
 
 

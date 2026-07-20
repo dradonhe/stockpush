@@ -35,6 +35,8 @@ class SrcMgrService:
         try:
             registry = get_registry()
             for item in registry.registry:
+                if not item.get('enabled'):
+                    continue
                 pname = item['provider_name']
                 try:
                     self._providers[pname] = registry._get_provider(pname)

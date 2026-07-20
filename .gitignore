@@ -33,3 +33,4 @@ Thumbs.db
 # Local config (Telegram/Feishu tokens, DB credentials)
 config.local.yaml
 config.local.yaml.new
+stockpush/config.local.yaml

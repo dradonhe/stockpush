@@ -29,3 +29,7 @@ Thumbs.db
 # Backup
 *.bak
 *.bak.*
+
+# Local config (Telegram/Feishu tokens, DB credentials)
+config.local.yaml
+config.local.yaml.new

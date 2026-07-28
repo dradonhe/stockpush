@@ -50,7 +50,8 @@ pkg update && pkg install -y \
     postgresql \
     git \
     rust \
-    binutils
+    binutils \
+    ripgrep
 ```
 
 | 包 | 用途 |
@@ -59,6 +60,7 @@ pkg update && pkg install -y \
 | postgresql | 数据库 |
 | git | 拉取代码 |
 | rust | 编译 cryptography 库 |
+| ripgrep | 高性能文本搜索（初始化脚本依赖） |
 
 ### Python 依赖
 
@@ -315,7 +317,7 @@ termux-wake-lock
 **检查**:
 ```bash
 # 查看日志
-grep "非交易日" /tmp/stockpush.log
+rg "非交易日" /tmp/stockpush.log
 
 # 手动测试交易日判断
 python3 -c "from stockpush.services.calendar_checker import CalendarChecker; print(CalendarChecker().is_today_trading_day())"
@@ -331,7 +333,7 @@ python3 -c "from stockpush.services.calendar_checker import CalendarChecker; pri
 python3 -m stockpush.worker --hermes feishu-test
 
 # 检查配置
-grep webhook stockpush/config.local.yaml
+rg webhook stockpush/config.local.yaml
 ```
 
 ---

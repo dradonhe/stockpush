@@ -29,6 +29,8 @@ class SrcMgrService:
         """从 DataSourceRegistry 动态加载 Provider 实例"""
         try:
             for item in self.registry.registry:
+                if not item.get('enabled'):
+                    continue
                 pname = item['provider_name']
                 try:
                     self._providers[pname] = self.registry._get_provider(pname)

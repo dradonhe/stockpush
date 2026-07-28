@@ -227,13 +227,25 @@ class TelegramPusher:
 
         return self.push("\n".join(lines))
 
-    def push_dividend_notice(self, symbol: str, name: str) -> Dict[str, Any]:
+    def push_dividend_notice(self, symbol: str, name: str, detail: str = "") -> Dict[str, Any]:
+        detail_line = f"\n详情: {detail}" if detail else ""
         message = (
             "<b>[F5.1 监控通知]</b>\n"
             f"标的: {symbol} {name}\n"
-            "事件: 今日为除权除息日，已全量更新数据\n"
+            f"事件: 今日为除权除息日{detail_line}\n"
             f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-            "来源: F5.1 自动检测"
+            "来源: 天天基金"
+        )
+        return self.push(message)
+
+    def push_fund_split_notice(self, symbol: str, name: str, detail: str = "") -> Dict[str, Any]:
+        message = (
+            "<b>[F5.1 监控通知]</b>\n"
+            f"标的: {symbol} {name}\n"
+            "事件: 今日发生份额分拆\n"
+            f"详情: {detail}\n"
+            f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            "来源: 天天基金"
         )
         return self.push(message)
 

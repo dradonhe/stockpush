@@ -57,13 +57,13 @@ fi
 # =============================================================================
 step "安装系统包"
 
-PACKAGES="python postgresql git rust binutils"
+PACKAGES="python postgresql git rust binutils ripgrep"
 
 if command -v pkg &>/dev/null; then
     info "更新包列表..."
     pkg update -y
     info "安装: $PACKAGES"
-    pkg install -y python postgresql git rust binutils
+    pkg install -y python postgresql git rust binutils ripgrep
     ok "系统包安装完成"
 else
     warn "pkg 不可用，跳过系统包安装（请手动安装: $PACKAGES）"
@@ -74,7 +74,7 @@ fi
 # =============================================================================
 step "检查 Python 版本"
 
-PY_VER=$(python3 --version 2>&1 | grep -oP '\d+\.\d+' || echo "0.0")
+PY_VER=$(python3 --version 2>&1 | rg -o '\d+\.\d+' || echo "0.0")
 if awk "BEGIN {exit !($PY_VER >= 3.11)}" 2>/dev/null; then
     ok "Python $PY_VER"
 else
@@ -129,7 +129,7 @@ else
 fi
 
 # 创建 stockpush 数据库
-if psql -U postgres -lqt 2>/dev/null | grep -qw stockpush; then
+if psql -U postgres -lqt 2>/dev/null | rg -qw stockpush; then
     ok "数据库 stockpush 已存在"
 else
     info "创建数据库 stockpush..."
@@ -188,7 +188,7 @@ step "配置环境变量"
 BASHRC="$HOME/.bashrc"
 MARKER="# stockpush env"
 
-if grep -qF "$MARKER" "$BASHRC" 2>/dev/null; then
+if rg -qF "$MARKER" "$BASHRC" 2>/dev/null; then
     ok "环境变量已配置"
 else
     cat >> "$BASHRC" << 'EOF'

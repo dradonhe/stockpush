@@ -4,6 +4,7 @@ After=network.target
 
 [Service]
 Type=exec
+EnvironmentFile=/opt/stockpush/.env
 ExecStart=/opt/stockpush/.venv/bin/python3 -m stockpush.worker --headless
 WorkingDirectory=/opt/stockpush
 Restart=no

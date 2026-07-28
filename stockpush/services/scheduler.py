@@ -157,6 +157,7 @@ class RealtimeScheduler:
 # ---------------------------------------------------------------------------
 
 _global_scheduler: Optional[RealtimeScheduler] = None
+_scheduler_lock = threading.Lock()
 
 
 def get_scheduler() -> Optional[RealtimeScheduler]:

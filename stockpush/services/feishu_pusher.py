@@ -180,12 +180,22 @@ class FeishuPusher:
         message = "\n".join(lines)
         return self.push(message)
 
-    def push_dividend_notice(self, symbol: str, name: str) -> Dict[str, Any]:
+    def push_dividend_notice(self, symbol: str, name: str, detail: str = "") -> Dict[str, Any]:
+        detail_line = f"\n详情: {detail}" if detail else ""
         message = f"""[F5.1 监控通知]
 标的: {symbol} {name}
-事件: 今日为除权除息日，已全量更新数据
+事件: 今日为除权除息日{detail_line}
 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-来源: F5.1 自动检测"""
+来源: 天天基金"""
+        return self.push(message)
+
+    def push_fund_split_notice(self, symbol: str, name: str, detail: str = "") -> Dict[str, Any]:
+        message = f"""[F5.1 监控通知]
+标的: {symbol} {name}
+事件: 今日发生份额分拆
+详情: {detail}
+时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+来源: 天天基金"""
         return self.push(message)
 
     def push_datasource_switch(self, from_source: str, to_source: str) -> Dict[str, Any]:

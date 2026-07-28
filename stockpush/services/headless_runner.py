@@ -35,14 +35,19 @@ def run_headless(config: dict, pusher, fetcher, calendar, scheduler, job_func) -
     )
     pusher.push(startup_msg)
 
-    # ── 4. Check dividends ──
+    # ── 4. Check dividends & splits ──
     if watchlist:
-        dividend_stocks = calendar.get_today_dividends(watchlist)
-        for div in dividend_stocks:
-            symbol = div.get("symbol", "")
-            name = div.get("name", "")
+        events = calendar.get_today_dividends(watchlist)
+        for ev in events:
+            symbol = ev.get("symbol", "")
+            name = ev.get("name", "")
+            event_type = ev.get("event_type", "dividend")
+            detail = ev.get("detail", "")
             if symbol:
-                pusher.push_dividend_notice(symbol, name)
+                if event_type == "split":
+                    pusher.push_fund_split_notice(symbol, name, detail)
+                else:
+                    pusher.push_dividend_notice(symbol, name, detail)
                 # [TODO] full download when implemented
 
     # ── 5. Late-start data integrity check ──

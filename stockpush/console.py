@@ -680,7 +680,7 @@ class Console:
         self._press_enter()
 
     def _dividend_view(self):
-        self._print_header("自选股除权除息")
+        self._print_header("自选股除权除息 & 拆分")
         result = self.api.dividend_view()
         if not result.get("success"):
             print(result.get("message", ""))
@@ -691,11 +691,13 @@ class Console:
             print("自选股池为空。")
             self._press_enter()
             return
-        print("查询中...")
-        print(f"{'代码':<10} | {'名称':<10} | {'除权除息日':<14}")
-        print("-" * 42)
+        print(f"{'代码':<10} | {'名称':<16} | {'除权除息日':<12} | {'拆分信息':<30}")
+        print("-" * 75)
         for item in stocks:
-            print(f"  {item['symbol']:<10} | {item.get('name',''):<10} | {item.get('dividend_date', '--')}")
+            div_date = item.get('dividend_date', '--') or '--'
+            split_info = item.get('split_info', '--') or '--'
+            name = (item.get('name', '') or '')[:14]
+            print(f"  {item['symbol']:<10} | {name:<16} | {div_date:<12} | {split_info:<30}")
         self._press_enter()
 
     # ===== 2.5 临时下载数据 =====

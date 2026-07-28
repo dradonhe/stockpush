@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # 需要代理的推送方法名
 _PROXY_METHODS = {
     'push', 'push_card', 'push_signal', 'push_signal_batch',
-    'push_dividend_notice', 'push_datasource_switch', 'push_error',
+    'push_dividend_notice', 'push_fund_split_notice', 'push_datasource_switch', 'push_error',
     'push_startup', 'push_shutdown', 'push_data_complete', 'test',
 }
 

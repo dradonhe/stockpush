@@ -108,6 +108,7 @@ class HermesAPI:
             self._store = SignalStore(self._db)
             self._engine = FunctionEngine(self._registry, self._store, self.pusher,
                                            lambda: self._get_symbols())
+            return True
         except Exception as e:
             logger.warning("Database unavailable: %s", e)
             return False
@@ -287,11 +288,12 @@ class HermesAPI:
         nxt = None
         try:
             nxt = self.scheduler.get_next_run_time() if hasattr(self.scheduler, 'get_next_run_time') else None
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("get_next_run_time failed: %s", e)
         try:
             symbols = self.watcher.get_symbols()
-        except Exception:
+        except Exception as e:
+            logger.debug("get_symbols failed: %s", e)
             symbols = []
         has_db = self._ensure_db()
         signals_today = self._get_today_signals(symbols) if has_db else []
@@ -448,7 +450,8 @@ class HermesAPI:
                             log_downloads(db, now_str, symbol, period, df_log)
                         except Exception:
                             logger.debug("Download logging failed", exc_info=True)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("Failed to fetch %s %s: %s", symbol, period, e)
                         continue
             if db:
                 db.close()
@@ -764,30 +767,41 @@ class HermesAPI:
             db.close()
 
     def dividend_view(self) -> dict:
-        """Return dividend/ex-right date for each watchlist stock.
-
-        Uses tb_calendar / tb_signal_log data instead.
-        """
+        """Return split/dividend info for each watchlist stock via TTJJ."""
         symbols = self.watcher.get_symbols()
         if not symbols:
             return self._fail("自选股池为空")
 
+        try:
+            from stockpush.services.calendar_checker import check_dividend_today
+        except ImportError:
+            return self._fail("fund_event_checker 不可用")
+
+        # 查近3天的事件（不限于今天）
+        from datetime import date, timedelta
+        today = date.today()
+
         results = []
         for symbol in symbols:
-            try:
-                from stockpush.pg_connector import PGConnector
-                db = PGConnector()
-                rows = db.execute_query(
-                    "SELECT ex_date FROM tb_calendar WHERE symbol = %s "
-                    "AND ex_date IS NOT NULL ORDER BY ex_date DESC LIMIT 1",
-                    (symbol,)
-                )
-                db.close()
-                date_val = str(rows[0]['ex_date']) if rows else None
-            except Exception:
-                date_val = None
             name = self._get_stock_name(symbol)
-            results.append({"symbol": symbol, "name": name, "dividend_date": date_val})
+            result = {"symbol": symbol, "name": name, "dividend_date": None, "split_info": None}
+            try:
+                from stockpush.services.fund_event_checker import check_fund_events
+                ev = check_fund_events(symbol)
+                if ev.get('error'):
+                    continue
+                # 最近的分红日期
+                divs = sorted(ev.get('dividends', []), key=lambda x: x.get('ex_date', ''), reverse=True)
+                if divs:
+                    result['dividend_date'] = divs[0].get('ex_date')
+                # 最近的拆分
+                splits = sorted(ev.get('splits', []), key=lambda x: x.get('date', ''), reverse=True)
+                if splits:
+                    s = splits[0]
+                    result['split_info'] = f"{s['type']} {s['ratio']} ({s['date']})"
+            except Exception as e:
+                logger.debug("dividend_view %s: %s", symbol, e)
+            results.append(result)
         return self._ok({"results": results})
 
     # ── Temp Download Log ──────────────────────────────────

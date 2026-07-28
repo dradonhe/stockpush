@@ -104,50 +104,49 @@ def get_trading_dates(start_date: date, end_date: date) -> List[date]:
 
 
 def check_dividend_today(symbols: List[str]) -> List[Dict[str, Any]]:
-    """检查今日是否有除权除息。
+    """检查今日是否有除权除息或拆分事件。
 
-    通过 XTick /doc/calendar 接口获取今日分红数据。
-    如果 XTick 不支持分红查询，返回空列表并记录警告。
+    通过天天基金 f10 页面获取分红和拆分数据。
+    替代已失效的 XTick 分红查询。
 
     Args:
         symbols: 自选股代码列表
 
     Returns:
-        除权除息股票信息列表
-        [{'symbol': '000001', 'name': '平安银行', 'dividend': '10派2.0', 'ex_date': '2026-07-01'}, ...]
+        事件列表
+        [{'symbol': '588200', 'name': '科创芯片ETF嘉实',
+          'event_type': 'split', 'detail': '份额分拆 1:3.0000', 'date': '2026-07-20'}, ...]
     """
-    today_str = date.today().isoformat()
-
     try:
-        provider = _get_xtick_provider()
-        # 尝试获取分红数据 — 如果 XTick 支持
-        df = provider.fetch_trade_calendar(today_str, today_str)
-        if df.empty:
-            return []
+        from stockpush.services.fund_event_checker import check_fund_events
+    except ImportError:
+        logger.warning("fund_event_checker 不可用")
+        return []
 
-        # 检查返回的数据中是否有分红相关字段
-        dividend_cols = [c for c in df.columns if 'dividend' in c.lower() or 'bonu' in c.lower() or 'ex' in c.lower()]
-        if not dividend_cols:
-            logger.info("XTick calendar does not provide dividend data, skipping dividend check.")
-            return []
+    today_str = date.today().isoformat()
+    results: List[Dict[str, Any]] = []
 
-        # 提取与自选股相关的分红数据
-        results = []
-        for _, row in df.iterrows():
-            code = row.get('code') or row.get('symbol') or ''
-            if code in symbols or code.lstrip('0') in symbols:
+    for code in symbols:
+        try:
+            event = check_fund_events(code)
+            if event.get('error'):
+                continue
+            for ev in event.get('today_events', []):
+                if ev['type'] == 'split':
+                    detail = f"{ev['split_type']} {ev['ratio']}"
+                else:
+                    detail = ev.get('per_share', '')
                 results.append({
                     'symbol': code,
-                    'name': row.get('name', ''),
-                    'dividend': str(row.get(dividend_cols[0], '')),
-                    'ex_date': today_str,
+                    'name': event.get('name', code),
+                    'event_type': ev['type'],
+                    'detail': detail,
+                    'date': ev.get('date') or ev.get('ex_date', today_str),
                 })
+        except Exception as e:
+            logger.debug("check_dividend_today %s: %s", code, e)
 
-        return results
-
-    except Exception as e:
-        logger.warning(f"XTick dividend check failed: {e}")
-        return []
+    return results
 
 
 def get_stock_name_from_pool(symbol: str, db_path: str = None) -> Optional[str]:

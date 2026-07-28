@@ -275,10 +275,10 @@ def _compute(df, *,
     TREND_BEAR = CH2_DN | (CH2_ZD & CH3_DN)
 
     # —— 八b、mm3/mm4方向过滤 (min1新增) ——————————————————
-    # 买: mm3上升 OR (mm3振荡 AND mm4上升)
-    # 卖: mm3下降 OR (mm3振荡 AND mm4下降)
-    CH_FILT_BUY  = CH3_UP | (CH3_ZD & CH4_UP)
-    CH_FILT_SELL = CH3_DN | (CH3_ZD & CH4_DN)
+    # 买: mm3上升 OR (mm3振荡 AND mm4上升) OR (mm1上升 AND NOT mm2下跌)
+    # 卖: mm3下降 OR (mm3振荡 AND mm4下降) OR (mm1下降 AND NOT mm2上升)
+    CH_FILT_BUY  = CH3_UP | (CH3_ZD & CH4_UP) | (CH1_UP & ~CH2_DN)
+    CH_FILT_SELL = CH3_DN | (CH3_ZD & CH4_DN) | (CH1_DN & ~CH2_UP)
 
     # —— 九、通道分离锚点 ——————————————————————————————————
     # SEP1: mm1脱离mm2 (B1A/S1A/B41/S41用)

@@ -78,14 +78,7 @@ class DataSourceRegistry:
             self.registry = []
 
     def _seed_registry(self, conn):
-        """自动初始化 tb_datasource_registry 表和数据"""
-        # Check if table already has data before seeding
-        existing = conn.execute_query(
-            "SELECT COUNT(*) as cnt FROM tb_datasource_registry"
-        )
-        if existing and existing[0].get('cnt', 0) > 0:
-            self.logger.info(f"数据源注册表已存在（{existing[0]['cnt']}条记录），跳过初始化")
-            return
+        """自动初始化/增量补齐 tb_datasource_registry 表和数据"""
         conn.execute("""
             CREATE TABLE IF NOT EXISTS tb_datasource_registry (
                 id INTEGER PRIMARY KEY,
@@ -126,8 +119,21 @@ class DataSourceRegistry:
             ('xtick', 'XTick', 'stockpush.src_mgr.xtick_provider.XTickProvider', True, 12,
              '{"timeout":15}', 15, 2,
              True,True,True,True, True,True,True,True, True,True,True,False),
+            ('baostock', 'Baostock', 'stockpush.src_mgr.baostock_provider.BaostockProvider', True, 20,
+             '{}', 30, 2,
+             True,True,False,False, True,True,False,False, True,False,True,True),
         ]
-        for i, p in enumerate(providers, 1):
+        # 增量补齐：已有记录保留（含用户手动调整的 enabled/priority），仅插入缺失的 provider
+        added = 0
+        for p in providers:
+            name = p[0]
+            exists = conn.execute_query(
+                "SELECT id FROM tb_datasource_registry WHERE provider_name = ?", (name,)
+            )
+            if exists:
+                continue
+            next_id = conn.execute_query("SELECT COALESCE(MAX(id), 0) + 1 AS nid FROM tb_datasource_registry")
+            new_id = next_id[0]['nid'] if next_id else 1
             conn.execute("""
                 INSERT INTO tb_datasource_registry VALUES (
                     ?,?,?,?,?,?,
@@ -138,8 +144,10 @@ class DataSourceRegistry:
                     0,0,0,NULL,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
-            """, (i,) + p)
-        self.logger.info(f"✅ 自动初始化数据源注册表完成：{len(providers)}个数据源")
+            """, (new_id,) + p)
+            added += 1
+        if added:
+            self.logger.info(f"✅ 数据源注册表增量补齐 {added} 个数据源")
 
     def _get_provider(self, provider_name: str):
         """

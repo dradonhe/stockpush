@@ -8,7 +8,19 @@ from datetime import date, datetime, timedelta
 from typing import List, Tuple, Optional, Dict, Any
 import logging
 
+import requests
+
 logger = logging.getLogger(__name__)
+
+# 东方财富 F10 分红融资接口（股票除权除息）
+_EM_F10_DIVIDEND_URL = (
+    "https://emweb.securities.eastmoney.com/PC_HSF10/BonusFinancing/PageAjax"
+)
+_EM_F10_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (compatible; stockpush/1.0)',
+    'Referer': 'https://emweb.securities.eastmoney.com/',
+}
+_EM_F10_TIMEOUT = 15
 
 
 def _get_xtick_provider():
@@ -103,46 +115,115 @@ def get_trading_dates(start_date: date, end_date: date) -> List[date]:
         return dates
 
 
+def _get_asset_type(symbol: str) -> str:
+    """从自选股池获取标的资产类型，查询失败默认按股票处理。"""
+    try:
+        from stockpush.pg_connector import PGConnector
+        db = PGConnector()
+        rows = db.execute_query(
+            "SELECT type FROM tb_stock_pool WHERE symbol = %s LIMIT 1",
+            (symbol,)
+        )
+        db.close()
+        if rows and rows[0].get('type') == 'fund':
+            return 'fund'
+    except Exception as e:
+        logger.debug("_get_asset_type %s failed: %s", symbol, e)
+    return 'stock'
+
+
+def _stock_market_prefix(code: str) -> str:
+    """根据股票代码前缀判断交易所，返回东财接口所需的市场前缀。
+
+    SH：6（沪主板/科创板）、5（沪市ETF/LOF）、9（沪B）
+    SZ：0（深主板）、3（创业板）
+    """
+    if code.startswith(('6', '5', '9')):
+        return 'SH'
+    return 'SZ'
+
+
+def _check_stock_dividend_today(code: str) -> Optional[Dict[str, Any]]:
+    """检查单个股票今日是否有除权除息事件（东方财富 F10 分红融资接口）。
+
+    Returns:
+        事件 dict 或 None（无事件/接口异常）
+        {'symbol', 'name', 'event_type': 'dividend', 'detail', 'date'}
+    """
+    try:
+        url = f"{_EM_F10_DIVIDEND_URL}?code={_stock_market_prefix(code)}{code}"
+        resp = requests.get(url, headers=_EM_F10_HEADERS, timeout=_EM_F10_TIMEOUT)
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception as e:
+        logger.debug("_check_stock_dividend_today %s 请求失败: %s", code, e)
+        return None
+
+    try:
+        today_str = date.today().isoformat()
+        for item in payload.get('fhyx') or []:
+            ex_date = str(item.get('EX_DIVIDEND_DATE') or '')[:10]
+            reg_date = str(item.get('EQUITY_RECORD_DATE') or '')[:10]
+            if ex_date == today_str or reg_date == today_str:
+                return {
+                    'symbol': code,
+                    'name': item.get('SECURITY_NAME_ABBR') or code,
+                    'event_type': 'dividend',
+                    'detail': item.get('IMPL_PLAN_PROFILE') or '',
+                    'date': ex_date or reg_date,
+                }
+    except Exception as e:
+        logger.debug("_check_stock_dividend_today %s 解析失败: %s", code, e)
+    return None
+
+
 def check_dividend_today(symbols: List[str]) -> List[Dict[str, Any]]:
     """检查今日是否有除权除息或拆分事件。
 
-    通过天天基金 f10 页面获取分红和拆分数据。
-    替代已失效的 XTick 分红查询。
+    按资产类型分流：
+    - 股票（stock）：东方财富 F10 分红融资接口（emweb.securities.eastmoney.com）
+    - 基金（fund）：天天基金 f10 页面（fundf10.eastmoney.com）
 
     Args:
         symbols: 自选股代码列表
 
     Returns:
         事件列表
-        [{'symbol': '588200', 'name': '科创芯片ETF嘉实',
-          'event_type': 'split', 'detail': '份额分拆 1:3.0000', 'date': '2026-07-20'}, ...]
+        [{'symbol': '601336', 'name': '新华保险',
+          'event_type': 'dividend', 'detail': '10派20.6元', 'date': '2026-08-07'}, ...]
     """
     try:
         from stockpush.services.fund_event_checker import check_fund_events
     except ImportError:
-        logger.warning("fund_event_checker 不可用")
-        return []
+        check_fund_events = None
 
     today_str = date.today().isoformat()
     results: List[Dict[str, Any]] = []
 
     for code in symbols:
         try:
-            event = check_fund_events(code)
-            if event.get('error'):
-                continue
-            for ev in event.get('today_events', []):
-                if ev['type'] == 'split':
-                    detail = f"{ev['split_type']} {ev['ratio']}"
-                else:
-                    detail = ev.get('per_share', '')
-                results.append({
-                    'symbol': code,
-                    'name': event.get('name', code),
-                    'event_type': ev['type'],
-                    'detail': detail,
-                    'date': ev.get('date') or ev.get('ex_date', today_str),
-                })
+            if _get_asset_type(code) == 'fund':
+                if check_fund_events is None:
+                    continue
+                event = check_fund_events(code)
+                if event.get('error'):
+                    continue
+                for ev in event.get('today_events', []):
+                    if ev['type'] == 'split':
+                        detail = f"{ev['split_type']} {ev['ratio']}"
+                    else:
+                        detail = ev.get('per_share', '')
+                    results.append({
+                        'symbol': code,
+                        'name': event.get('name', code),
+                        'event_type': ev['type'],
+                        'detail': detail,
+                        'date': ev.get('date') or ev.get('ex_date', today_str),
+                    })
+            else:
+                stock_ev = _check_stock_dividend_today(code)
+                if stock_ev:
+                    results.append(stock_ev)
         except Exception as e:
             logger.debug("check_dividend_today %s: %s", code, e)
 

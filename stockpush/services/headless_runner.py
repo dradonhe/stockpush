@@ -48,7 +48,22 @@ def run_headless(config: dict, pusher, fetcher, calendar, scheduler, job_func) -
                     pusher.push_fund_split_notice(symbol, name, detail)
                 else:
                     pusher.push_dividend_notice(symbol, name, detail)
-                # [TODO] full download when implemented
+                # 除权除息/拆分后删除旧数据并全量重下
+                ok = _full_reload_symbol(fetcher, symbol)
+                if ok:
+                    pusher.push(
+                        "[F5.1 监控通知]\n"
+                        f"标的: {symbol} {name}\n"
+                        f"事件: 今日除权除息/拆分，已删除旧数据并重新下载\n"
+                        f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                else:
+                    pusher.push(
+                        "[F5.1 监控通知]\n"
+                        f"标的: {symbol} {name}\n"
+                        f"事件: 今日除权除息/拆分，但重新下载失败，请检查日志\n"
+                        f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
 
     # ── 5. Late-start data integrity check ──
     now = datetime.now()
@@ -153,6 +168,49 @@ def _check_and_fill_data(fetcher, symbols: list, pusher) -> None:
     msg = "\n".join(lines)
     pusher.push(msg)
     logger.info("Data integrity check done.")
+
+
+# 除权除息后全量重下：周期 -> 回溯天数（用户确认）
+_RELOAD_BACKDAYS = {
+    '1m': 180,   # 半年
+    '5m': 365,   # 1 年
+    '30m': 730,  # 2 年
+    '1d': 730,   # 2 年
+}
+
+
+def _full_reload_symbol(fetcher, symbol: str) -> bool:
+    """删除标的历史数据并重新下载（除权除息/拆分后调用）。
+
+    逐周期：先 DELETE tb_raw_{period} 中该 symbol 全部数据，
+    再按各周期回溯天数 fetch_and_save_history 重下。
+
+    Returns:
+        True=全部周期成功；False=任一周期失败（不抛异常）
+    """
+    from datetime import date, timedelta
+    ok = True
+    for period, backdays in _RELOAD_BACKDAYS.items():
+        try:
+            from stockpush.pg_connector import PGConnector
+            db = PGConnector()
+            table = f"tb_raw_{period}"
+            deleted = db.execute_update(
+                f"DELETE FROM {table} WHERE symbol = %s", (symbol,)
+            )
+            db.close()
+            start = (date.today() - timedelta(days=backdays)).isoformat()
+            end = date.today().isoformat()
+            ok_, saved, src = fetcher.fetch_and_save_history(symbol, period, start, end)
+            if not ok_:
+                logger.warning("reload %s %s: 下载失败", symbol, period)
+                ok = False
+            else:
+                logger.info("reload %s %s: 删除%d条, 重下%d条 (%s)", symbol, period, deleted, saved, src)
+        except Exception as e:
+            logger.warning("reload %s %s 异常: %s", symbol, period, e)
+            ok = False
+    return ok
 
 
 def _calc_runtime(start: datetime) -> str:

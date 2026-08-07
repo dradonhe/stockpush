@@ -69,6 +69,8 @@ pip install -r stockpush/requirements.txt
 pip install -e .
 ```
 
+> **Baostock 备用数据源**：`requirements.txt` 已包含 `baostock>=0.9.1`（纯 Python 包，仅依赖 pandas，**无额外系统包**；Termux 下无需额外 `pkg install`）。该依赖为备用数据源与股票分红（API12）提供支持，缺失时对应 Provider 自动跳过（降级为仅 XTick）。
+
 ---
 
 ## 3. 安装步骤
